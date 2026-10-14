@@ -1,0 +1,516 @@
+{
+  "permission": {
+    "columns": {
+      "id": "UUID",
+      "code": "VARCHAR(30)",
+      "name": "VARCHAR(40)",
+      "description": "TEXT",
+      "active": "BOOLEAN"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "app_user": {
+    "columns": {
+      "id": "UUID",
+      "permission_id": "UUID",
+      "name": "VARCHAR(120)",
+      "cpf": "CHAR(11)",
+      "email": "VARCHAR(120)",
+      "firebase_uid": "VARCHAR(128)",
+      "photo_url": "TEXT",
+      "active": "BOOLEAN",
+      "first_login": "BOOLEAN",
+      "blocked_until": "TIMESTAMP",
+      "source_id": "UUID",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "property": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "name": "VARCHAR(120)",
+      "cnpj": "CHAR(14)",
+      "street": "VARCHAR(150)",
+      "number": "VARCHAR(10)",
+      "complement": "VARCHAR(100)",
+      "zip_code": "CHAR(8)",
+      "address_full": "TEXT",
+      "city": "VARCHAR(100)",
+      "state": "CHAR(2)",
+      "area_hectares": "NUMERIC(10, 2)",
+      "phone": "VARCHAR(20)",
+      "source_id": "UUID",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "user_property": {
+    "columns": {
+      "user_id": "UUID",
+      "property_id": "UUID",
+      "link_date": "DATE",
+      "unlink_date": "DATE",
+      "active": "BOOLEAN"
+    },
+    "primary_keys": [
+      "user_id",
+      "property_id"
+    ]
+  },
+  "device": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "push_token": "VARCHAR(255)",
+      "platform": "VARCHAR(10)",
+      "model": "VARCHAR(60)",
+      "last_sync": "TIMESTAMP",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "herd": {
+    "columns": {
+      "id": "UUID",
+      "property_id": "UUID",
+      "herd_name": "VARCHAR(60)",
+      "breed": "VARCHAR(40)",
+      "head_count": "INTEGER",
+      "source_id": "UUID",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "lot": {
+    "columns": {
+      "id": "UUID",
+      "herd_id": "UUID",
+      "parent_lot_id": "UUID",
+      "lot_code": "VARCHAR(20)",
+      "category": "VARCHAR(30)",
+      "is_exception_lot": "BOOLEAN",
+      "exception_reason": "VARCHAR(255)",
+      "head_count": "INTEGER",
+      "slaughter_release_date": "DATE",
+      "fit_for_slaughter": "BOOLEAN",
+      "open_date": "DATE",
+      "close_date": "DATE",
+      "source_id": "UUID",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "animal_exception": {
+    "columns": {
+      "id": "UUID",
+      "lot_id": "UUID",
+      "origin_lot_id": "UUID",
+      "ear_tag": "VARCHAR(20)",
+      "category": "VARCHAR(20)",
+      "birth_date": "DATE",
+      "current_weight": "NUMERIC(7, 2)",
+      "exception_date": "DATE",
+      "exception_end_date": "DATE",
+      "exception_reason": "VARCHAR(255)",
+      "slaughter_release_date": "DATE",
+      "fit_for_slaughter": "BOOLEAN",
+      "status": "VARCHAR(15)",
+      "notes": "TEXT",
+      "source_id": "UUID",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "supplier": {
+    "columns": {
+      "id": "UUID",
+      "company_name": "VARCHAR(120)",
+      "cnpj": "CHAR(14)",
+      "email": "VARCHAR(120)",
+      "phone": "VARCHAR(20)",
+      "address": "VARCHAR(255)",
+      "source_id": "UUID",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "therapeutic_category": {
+    "columns": {
+      "id": "UUID",
+      "name": "VARCHAR(40)",
+      "name_norm": "TEXT",
+      "description": "TEXT"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "medicine": {
+    "columns": {
+      "id": "UUID",
+      "supplier_id": "UUID",
+      "therapeutic_category_id": "UUID",
+      "brand_name": "VARCHAR(80)",
+      "active_ingredient": "VARCHAR(80)",
+      "mapa_registration": "VARCHAR(20)",
+      "indication": "TEXT",
+      "description": "TEXT",
+      "needs_prescription": "BOOLEAN",
+      "meat_withdrawal_days": "INTEGER",
+      "dose": "NUMERIC(10, 3)",
+      "unit": "VARCHAR(10)",
+      "route": "VARCHAR(20)",
+      "source_id": "UUID",
+      "active": "BOOLEAN",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "medicine_batch": {
+    "columns": {
+      "id": "UUID",
+      "medicine_id": "UUID",
+      "batch_number": "VARCHAR(30)",
+      "manufacture_date": "DATE",
+      "expiry_date": "DATE",
+      "delivery_date": "DATE",
+      "initial_quantity": "NUMERIC(10, 3)",
+      "min_stock": "NUMERIC(10, 3)",
+      "max_stock": "NUMERIC(10, 3)",
+      "storage_place": "VARCHAR(60)",
+      "status": "VARCHAR(15)",
+      "source_id": "UUID",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "application": {
+    "columns": {
+      "id": "UUID",
+      "lot_id": "UUID",
+      "medicine_batch_id": "UUID",
+      "user_id": "UUID",
+      "application_date": "DATE",
+      "application_time": "TIME",
+      "dose": "NUMERIC(10, 3)",
+      "unit": "VARCHAR(10)",
+      "route": "VARCHAR(20)",
+      "head_count_applied": "INTEGER",
+      "meat_withdrawal_end": "DATE",
+      "applied_limb": "VARCHAR(50)",
+      "applied_site": "VARCHAR(100)",
+      "goal": "VARCHAR(120)",
+      "notes": "TEXT",
+      "active": "BOOLEAN",
+      "source_id": "UUID",
+      "synced_at": "TIMESTAMP",
+      "created_at": "TIMESTAMP",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "application_animal": {
+    "columns": {
+      "id": "UUID",
+      "application_id": "UUID",
+      "animal_exception_id": "UUID",
+      "dose_given": "NUMERIC(10, 3)",
+      "weight_at_time": "NUMERIC(7, 2)",
+      "meat_withdrawal_end": "DATE",
+      "released_for_slaughter": "BOOLEAN",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "stock_movement": {
+    "columns": {
+      "id": "UUID",
+      "medicine_batch_id": "UUID",
+      "application_id": "UUID",
+      "user_id": "UUID",
+      "type": "CHAR(1)",
+      "quantity": "NUMERIC(10, 3)",
+      "movement_date": "TIMESTAMP",
+      "reason": "VARCHAR(60)",
+      "source_id": "UUID",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "occurrence": {
+    "columns": {
+      "id": "UUID",
+      "animal_exception_id": "UUID",
+      "user_id": "UUID",
+      "type": "VARCHAR(20)",
+      "occurrence_date": "DATE",
+      "description": "TEXT",
+      "diagnosis": "TEXT",
+      "resolved": "BOOLEAN",
+      "resolved_at": "DATE",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "animal_lot_history": {
+    "columns": {
+      "id": "UUID",
+      "animal_exception_id": "UUID",
+      "lot_id": "UUID",
+      "entry_date": "DATE",
+      "exit_date": "DATE",
+      "reason": "VARCHAR(60)",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "alert": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "lot_id": "UUID",
+      "animal_exception_id": "UUID",
+      "type": "VARCHAR(30)",
+      "severity": "VARCHAR(10)",
+      "title": "VARCHAR(120)",
+      "message": "TEXT",
+      "created_at": "TIMESTAMP",
+      "read_at": "TIMESTAMP",
+      "status": "VARCHAR(15)"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "notification_delivery": {
+    "columns": {
+      "id": "UUID",
+      "alert_id": "UUID",
+      "device_id": "UUID",
+      "channel": "VARCHAR(15)",
+      "status": "VARCHAR(15)",
+      "attempts": "INTEGER",
+      "sent_at": "TIMESTAMP",
+      "error": "TEXT"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "attachment": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "entity": "VARCHAR(30)",
+      "entity_id": "UUID",
+      "type": "VARCHAR(20)",
+      "file_path": "VARCHAR(255)",
+      "file_hash": "CHAR(64)",
+      "size_bytes": "INTEGER",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "change_audit": {
+    "columns": {
+      "id": "UUID",
+      "table_name": "VARCHAR(60)",
+      "operation": "CHAR(6)",
+      "record_id": "VARCHAR(40)",
+      "old_data": "JSONB",
+      "new_data": "JSONB",
+      "db_user": "VARCHAR(60)",
+      "app_user_id": "UUID",
+      "ip_address": "INET",
+      "happened_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "access_audit": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "login_tried": "VARCHAR(120)",
+      "success": "BOOLEAN",
+      "failure_reason": "VARCHAR(60)",
+      "source": "VARCHAR(10)",
+      "ip_address": "INET",
+      "user_agent": "VARCHAR(255)",
+      "happened_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "interaction_audit": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "device_id": "UUID",
+      "action_type": "VARCHAR(20)",
+      "element_type": "VARCHAR(20)",
+      "element_id": "VARCHAR(60)",
+      "element_name": "VARCHAR(60)",
+      "element_description": "VARCHAR(120)",
+      "created_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "daily_access": {
+    "columns": {
+      "id": "UUID",
+      "user_id": "UUID",
+      "date": "DATE",
+      "source": "VARCHAR(10)",
+      "session_count": "INTEGER",
+      "first_login_time": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "data_catalog": {
+    "columns": {
+      "id": "UUID",
+      "table_name": "VARCHAR(60)",
+      "column_name": "VARCHAR(60)",
+      "data_type": "VARCHAR(30)",
+      "description": "TEXT",
+      "business_rule": "TEXT",
+      "access_level": "VARCHAR(15)",
+      "personal_data": "BOOLEAN",
+      "lgpd_legal_basis": "VARCHAR(60)",
+      "updated_at": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "load_run": {
+    "columns": {
+      "id": "UUID",
+      "routine_name": "VARCHAR(60)",
+      "source": "VARCHAR(40)",
+      "start_time": "TIMESTAMP",
+      "end_time": "TIMESTAMP",
+      "rows_read": "INTEGER",
+      "rows_inserted": "INTEGER",
+      "rows_updated": "INTEGER",
+      "rows_rejected": "INTEGER",
+      "status": "VARCHAR(15)",
+      "loaded_until": "TIMESTAMP",
+      "message": "TEXT"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "load_error": {
+    "columns": {
+      "id": "UUID",
+      "load_run_id": "UUID",
+      "source_table": "VARCHAR(60)",
+      "natural_key": "VARCHAR(120)",
+      "original_content": "JSONB",
+      "error_message": "TEXT",
+      "attempts": "INTEGER",
+      "reprocessed": "BOOLEAN"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "load_mapping": {
+    "columns": {
+      "id": "UUID",
+      "table_name": "VARCHAR(60)",
+      "source_id": "VARCHAR(40)",
+      "target_id": "UUID",
+      "natural_key": "VARCHAR(120)",
+      "load_date": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "load_staging": {
+    "columns": {
+      "id": "UUID",
+      "load_run_id": "UUID",
+      "source_columns": "TEXT",
+      "row_hash": "CHAR(64)",
+      "processed": "BOOLEAN",
+      "extract_date": "TIMESTAMP"
+    },
+    "primary_keys": [
+      "id"
+    ]
+  },
+  "dim_date": {
+    "columns": {
+      "date_key": "INTEGER",
+      "date": "DATE",
+      "day": "INTEGER",
+      "month": "INTEGER",
+      "month_name": "VARCHAR(12)",
+      "quarter": "INTEGER",
+      "year": "INTEGER",
+      "week": "INTEGER",
+      "is_weekend": "BOOLEAN"
+    },
+    "primary_keys": [
+      "date_key"
+    ]
+  }
+}

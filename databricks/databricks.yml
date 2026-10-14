@@ -1,0 +1,90 @@
+bundle:
+  name: argos-medallion
+
+variables:
+  catalog:
+    default: main
+  source_schema:
+    default: public
+  bronze_schema:
+    default: bronze
+  silver_schema:
+    default: silver
+  gold_schema:
+    default: self_service
+  jdbc_url:
+    description: URL JDBC PostgreSQL (usuário e senha definidos no notebook Bronze)
+    default: jdbc:postgresql://banco-de-dados-institutojef-6ce7.c.aivencloud.com:24330/defaultdb?sslmode=require
+  cluster_id:
+    description: Cluster existente com acesso ao PostgreSQL e driver JDBC
+
+resources:
+  pipelines:
+    argos_silver_gold:
+      name: argos-silver-self-service
+      catalog: ${var.catalog}
+      schema: ${var.silver_schema}
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      root_path: ${workspace.file_path}
+      libraries:
+        - file:
+            path: ./pipelines/02_silver_03_gold.py
+      configuration:
+        argos.catalog: ${var.catalog}
+        argos.source_schema: ${var.source_schema}
+        argos.bronze_schema: ${var.bronze_schema}
+        argos.silver_schema: ${var.silver_schema}
+        argos.gold_schema: ${var.gold_schema}
+        spark.sql.session.timeZone: UTC
+  jobs:
+    argos_medallion:
+      name: argos-bronze-silver-self-service
+      max_concurrent_runs: 1
+      parameters:
+        - name: force_snapshot
+          default: 'false'
+        - name: lookback_hours
+          default: '24'
+      tasks:
+        - task_key: bronze
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ./notebooks/01_bronze.py
+            base_parameters:
+              catalog: ${var.catalog}
+              source_schema: ${var.source_schema}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              gold_schema: ${var.gold_schema}
+              jdbc_url: ${var.jdbc_url}
+              lookback_hours: '{{job.parameters.lookback_hours}}'
+              force_snapshot: '{{job.parameters.force_snapshot}}'
+          libraries:
+            - maven:
+                coordinates: org.postgresql:postgresql:42.7.14
+          max_retries: 2
+          min_retry_interval_millis: 60000
+        - task_key: silver_gold
+          depends_on:
+            - task_key: bronze
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.argos_silver_gold.id}
+            full_refresh: false
+        - task_key: validar
+          depends_on:
+            - task_key: silver_gold
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ./notebooks/04_validacao.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              gold_schema: ${var.gold_schema}
+
+targets:
+  dev:
+    default: true
+    mode: development
