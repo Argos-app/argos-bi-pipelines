@@ -5,26 +5,23 @@
 # COMMAND ----------
 import sys
 import importlib
-import inspect
 from pathlib import Path
 
-sys.path.insert(0, str(Path.cwd().parent))
+for candidate in (Path.cwd(), *Path.cwd().parents):
+    if (candidate / 'argos').is_dir():
+        sys.path.insert(0, str(candidate))
+        break
+else:
+    raise RuntimeError('Pasta argos não encontrada. Preserve argos/ e notebooks/ na raiz do projeto.')
 import argos.common as common_module
 import argos.bronze as bronze_module
 
-# Recarrega módulos após atualizar os arquivos no Workspace.
-# Atualize common.py e bronze.py junto com este notebook.
 importlib.reload(common_module)
 importlib.reload(bronze_module)
 ingest = bronze_module.ingest
-if tuple(inspect.signature(ingest).parameters) != ('spark', 'config'):
-    raise RuntimeError(
-        f'Versão antiga de ingest carregada de {bronze_module.__file__}. '
-        'Atualize argos/bronze.py para def ingest(spark, config) e execute esta célula novamente.'
-    )
 
 # COMMAND ----------
-# Preencha a senha diretamente nesta célula antes de executar/deployar.
+# Preencha a senha diretamente nesta célula antes de executar.
 # Credenciais não são widgets nem parâmetros do Job.
 jdbc_user = 'avnadmin'
 jdbc_password = 'PREENCHA_A_SENHA_DO_BANCO'

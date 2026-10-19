@@ -13,7 +13,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / '.test-deps')]
 import duckdb
 import sqlglot
 import yaml
-from argos.common import build_jdbc_options, event_expression, ingestion_mode, pg_ident
+from argos.common import build_jdbc_options, event_expression, ingestion_mode, is_time_type, pg_ident, pg_projection
 from argos.gold import gold_queries
 from argos.silver import silver_query
 
@@ -276,6 +276,28 @@ class MedallionTests(unittest.TestCase):
         self.assertNotIn('jdbc_user', widgets)
         self.assertNotIn('jdbc_password', widgets)
 
+
+    def test_time_detection_does_not_convert_dates_or_timestamps(self):
+        for name in ('TIME', 'time(6)', 'time without time zone', 'time with time zone', 'timetz'):
+            self.assertTrue(is_time_type(name))
+        for name in ('timestamp', 'timestamp_ntz', 'timestamp with time zone', 'date', 'string', 'numeric'):
+            self.assertFalse(is_time_type(name))
+
+    def test_source_time_projection_preserves_microseconds_nulls_and_timestamp_type(self):
+        columns = ['id', 'application_time', 'created_at']
+        types = {'id': 'integer', 'application_time': 'time without time zone', 'created_at': 'timestamp without time zone'}
+        projection = pg_projection(columns, types)
+        source = """(VALUES
+            (1, TIME '09:15:30.123456', TIMESTAMP '2026-10-14 09:15:30'),
+            (2, CAST(NULL AS TIME), TIMESTAMP '2026-10-14 10:00:00')
+        ) AS src(id, application_time, created_at)"""
+        rows = self.db.execute('SELECT ' + projection + ' FROM ' + source + ' ORDER BY id').fetchall()
+        self.assertEqual(rows[0][1], '09:15:30.123456')
+        self.assertIsNone(rows[1][1])
+        self.assertEqual(rows[0][2].year, 2026)
+        self.assertEqual(pg_projection(['a"b'], {'a"b': 'time'}), 'CAST("a""b" AS TEXT) AS "a""b"')
+
+
     def test_python_syntax_and_bundle_orchestration(self):
         for path in ROOT.rglob('*.py'):
             if '.test-deps' not in path.parts:
@@ -283,7 +305,15 @@ class MedallionTests(unittest.TestCase):
         bundle = yaml.safe_load((ROOT / 'databricks.yml').read_text())
         job = bundle['resources']['jobs']['argos_medallion']
         self.assertEqual(job['max_concurrent_runs'], 1)
-        self.assertEqual(job['tasks'][1]['depends_on'], [{'task_key': 'bronze'}])
+        self.assertEqual([task['task_key'] for task in job['tasks'][:2]], ['bronze', 'silver'])
+        self.assertEqual(job['tasks'][-1]['task_key'], 'validar')
+        self.assertNotIn('pipelines', bundle['resources'])
+        self.assertNotIn('gold', [task['task_key'] for task in job['tasks']])
+        self.assertTrue(all(task['task_key'].startswith('gold_') for task in job['tasks'][2:-1]))
+        for task in job['tasks']:
+            self.assertIn('notebook_task', task)
+            self.assertNotIn('pipeline_task', task)
+            self.assertTrue((ROOT / task['notebook_task']['notebook_path']).is_file())
 
 
 if __name__ == '__main__':

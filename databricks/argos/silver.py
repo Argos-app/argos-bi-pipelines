@@ -1,19 +1,26 @@
 """Estado atual: UPPER de strings + uma versão por chave primária."""
+
 from argos.common import sql_ident
 
 
 def silver_query(bronze, state, source_schema, name, keys, fields):
     # fields: pares (nome, é_string). Metadados e IDs em string também recebem UPPER.
-    columns = [column for column, _ in fields if not column.startswith('_')]
+    columns = [column for column, _ in fields if not column.startswith("_")]
     keys = keys or columns
-    partition = ', '.join(sql_ident(column) for column in keys)
-    projection = ',\n       '.join(
-        f'upper({sql_ident(column)}) AS {sql_ident(column)}' if is_string else sql_ident(column)
-        for column, is_string in fields if not column.startswith('_'))
+    partition = ", ".join(sql_ident(column) for column in keys)
+    projection = ",\n       ".join(
+        (
+            f"upper({sql_ident(column)}) AS {sql_ident(column)}"
+            if is_string
+            else sql_ident(column)
+        )
+        for column, is_string in fields
+        if not column.startswith("_")
+    )
     literal_schema = source_schema.replace("'", "''")
     literal_name = name.replace("'", "''")
     # Seleciona o último marcador concluído; permite esvaziar Silver após snapshot vazio.
-    return f'''WITH latest_state AS (
+    return f"""WITH latest_state AS (
         SELECT batch_id, mode FROM (
             SELECT *, row_number() OVER (ORDER BY completed_at DESC, batch_id DESC) AS _state_rn
             FROM {state}
@@ -39,4 +46,4 @@ def silver_query(bronze, state, source_schema, name, keys, fields):
             PARTITION BY {partition}
             ORDER BY _change_at DESC NULLS LAST, _ingested_at DESC, _row_hash DESC
         ) AS _rn FROM normalized
-    ) SELECT DISTINCT {', '.join(sql_ident(c) for c in columns)} FROM ranked WHERE _rn = 1'''
+    ) SELECT DISTINCT {', '.join(sql_ident(c) for c in columns)} FROM ranked WHERE _rn = 1"""

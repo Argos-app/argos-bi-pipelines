@@ -1,20 +1,27 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC Validação no Databricks após atualização da pipeline.
+# MAGIC Validação das três camadas em tabelas Delta comuns após o Job.
 
 # COMMAND ----------
 import sys
 from pathlib import Path
 from pyspark.sql import functions as F
 
-sys.path.insert(0, str(Path.cwd().parent))
+for candidate in (Path.cwd(), *Path.cwd().parents):
+    if (candidate / 'argos').is_dir():
+        sys.path.insert(0, str(candidate))
+        break
+else:
+    raise RuntimeError('Pasta argos não encontrada. Preserve argos/ e notebooks/ na raiz do projeto.')
 from argos.common import source_name, table_name
+from argos.delta_layers import assert_delta_targets, target_inventory
 
-for key, default in {'catalog': 'main', 'bronze_schema': 'bronze',
+for key, default in {'catalog': 'main', 'source_schema': 'public', 'bronze_schema': 'bronze',
                      'silver_schema': 'silver', 'gold_schema': 'self_service'}.items():
     dbutils.widgets.text(key, default)
-config = {key: dbutils.widgets.get(key) for key in ('catalog', 'bronze_schema', 'silver_schema', 'gold_schema')}
+config = {key: dbutils.widgets.get(key) for key in ('catalog', 'source_schema', 'bronze_schema', 'silver_schema', 'gold_schema')}
 catalog = config['catalog']
+assert_delta_targets(spark, catalog, target_inventory(spark, config, include_bronze=True), require_exists=True)
 manifest = spark.table(table_name(catalog, config['bronze_schema'], '_table_manifest')).collect()
 facts = {'property', 'user_property', 'herd', 'lot', 'animal_exception', 'application',
          'application_animal', 'stock_movement', 'occurrence', 'animal_lot_history',
@@ -32,7 +39,7 @@ for item in manifest:
         null_pk = silver.where(null_condition).limit(1).count()
         if duplicate or null_pk:
             errors.append(f'{name}: PK duplicada ou nula na Silver')
-    # Gold usa o schema de origem configurado na pipeline; apenas um schema por Job.
+    # Gold usa o schema de origem configurado no Job; apenas um schema por Job.
     gold = spark.table(table_name(catalog, config['gold_schema'], name))
     silver_count, gold_count = silver.count(), gold.count()
     if name in facts and gold_count != silver_count:

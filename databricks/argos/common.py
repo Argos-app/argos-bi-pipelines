@@ -48,3 +48,21 @@ def build_jdbc_options(config):
         'url': url, 'user': user, 'password': password,
         'driver': 'org.postgresql.Driver', 'fetchsize': '10000',
     }
+
+
+
+def is_time_type(type_name):
+    name = type_name.strip().lower()
+    return name in {'time', 'timetz', 'time without time zone', 'time with time zone'} or name.startswith('time(')
+
+
+def pg_projection(columns, data_types):
+    """Representa TIME como texto na origem, preservando nulos e frações."""
+    expressions = []
+    for column in columns:
+        identifier = pg_ident(column)
+        if is_time_type(data_types.get(column, '')):
+            expressions.append(f'CAST({identifier} AS TEXT) AS {identifier}')
+        else:
+            expressions.append(identifier)
+    return ', '.join(expressions)

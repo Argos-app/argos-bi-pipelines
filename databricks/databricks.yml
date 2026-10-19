@@ -1,6 +1,6 @@
+# Gold: sete lotes de ate cinco tasks; cada lote aguarda todo o anterior.
 bundle:
   name: argos-medallion
-
 variables:
   catalog:
     default: main
@@ -15,75 +15,668 @@ variables:
   jdbc_url:
     description: URL JDBC PostgreSQL (usuário e senha definidos no notebook Bronze)
     default: jdbc:postgresql://banco-de-dados-institutojef-6ce7.c.aivencloud.com:24330/defaultdb?sslmode=require
-  cluster_id:
-    description: Cluster existente com acesso ao PostgreSQL e driver JDBC
-
 resources:
-  pipelines:
-    argos_silver_gold:
-      name: argos-silver-self-service
-      catalog: ${var.catalog}
-      schema: ${var.silver_schema}
-      serverless: true
-      continuous: false
-      channel: CURRENT
-      root_path: ${workspace.file_path}
-      libraries:
-        - file:
-            path: ./pipelines/02_silver_03_gold.py
-      configuration:
-        argos.catalog: ${var.catalog}
-        argos.source_schema: ${var.source_schema}
-        argos.bronze_schema: ${var.bronze_schema}
-        argos.silver_schema: ${var.silver_schema}
-        argos.gold_schema: ${var.gold_schema}
-        spark.sql.session.timeZone: UTC
   jobs:
     argos_medallion:
       name: argos-bronze-silver-self-service
       max_concurrent_runs: 1
       parameters:
-        - name: force_snapshot
-          default: 'false'
-        - name: lookback_hours
-          default: '24'
+      - name: force_snapshot
+        default: 'false'
+      - name: lookback_hours
+        default: '24'
       tasks:
+      - task_key: bronze
+        notebook_task:
+          notebook_path: ./notebooks/01_bronze.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+            jdbc_url: ${var.jdbc_url}
+            lookback_hours: '{{job.parameters.lookback_hours}}'
+            force_snapshot: '{{job.parameters.force_snapshot}}'
+        max_retries: 2
+        min_retry_interval_millis: 60000
+      - task_key: silver
+        depends_on:
         - task_key: bronze
-          existing_cluster_id: ${var.cluster_id}
-          notebook_task:
-            notebook_path: ./notebooks/01_bronze.py
-            base_parameters:
-              catalog: ${var.catalog}
-              source_schema: ${var.source_schema}
-              bronze_schema: ${var.bronze_schema}
-              silver_schema: ${var.silver_schema}
-              gold_schema: ${var.gold_schema}
-              jdbc_url: ${var.jdbc_url}
-              lookback_hours: '{{job.parameters.lookback_hours}}'
-              force_snapshot: '{{job.parameters.force_snapshot}}'
-          libraries:
-            - maven:
-                coordinates: org.postgresql:postgresql:42.7.14
-          max_retries: 2
-          min_retry_interval_millis: 60000
-        - task_key: silver_gold
-          depends_on:
-            - task_key: bronze
-          pipeline_task:
-            pipeline_id: ${resources.pipelines.argos_silver_gold.id}
-            full_refresh: false
-        - task_key: validar
-          depends_on:
-            - task_key: silver_gold
-          existing_cluster_id: ${var.cluster_id}
-          notebook_task:
-            notebook_path: ./notebooks/04_validacao.py
-            base_parameters:
-              catalog: ${var.catalog}
-              bronze_schema: ${var.bronze_schema}
-              silver_schema: ${var.silver_schema}
-              gold_schema: ${var.gold_schema}
-
+        notebook_task:
+          notebook_path: ./notebooks/02_silver.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold__context_user_property
+        depends_on:
+        - task_key: silver
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/_context_user_property.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold__context_medicine
+        depends_on:
+        - task_key: silver
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/_context_medicine.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold__context_medicine_batch
+        depends_on:
+        - task_key: silver
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/_context_medicine_batch.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold__context_supplier
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_medicine
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/_context_supplier.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold__context_therapeutic_category
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_medicine
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/_context_therapeutic_category.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_access_audit
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/access_audit.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_alert
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/alert.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_animal_exception
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/animal_exception.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_animal_lot_history
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/animal_lot_history.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_app_user
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/app_user.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_application
+        depends_on:
+        - task_key: silver
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/application.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_application_animal
+        depends_on:
+        - task_key: silver
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/application_animal.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_attachment
+        depends_on:
+        - task_key: silver
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/attachment.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_change_audit
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/change_audit.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_daily_access
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/daily_access.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_data_catalog
+        depends_on:
+        - task_key: silver
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/data_catalog.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_device
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/device.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_dim_date
+        depends_on:
+        - task_key: silver
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/dim_date.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_herd
+        depends_on:
+        - task_key: silver
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/herd.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_interaction_audit
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/interaction_audit.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_load_error
+        depends_on:
+        - task_key: silver
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/load_error.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_load_mapping
+        depends_on:
+        - task_key: silver
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/load_mapping.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_load_run
+        depends_on:
+        - task_key: silver
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/load_run.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_load_staging
+        depends_on:
+        - task_key: silver
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/load_staging.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_lot
+        depends_on:
+        - task_key: silver
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/lot.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_medicine
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_medicine
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/medicine.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_medicine_batch
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_medicine_batch
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/medicine_batch.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_notification_delivery
+        depends_on:
+        - task_key: silver
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/notification_delivery.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_occurrence
+        depends_on:
+        - task_key: silver
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/occurrence.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_permission
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_user_property
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/permission.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_property
+        depends_on:
+        - task_key: silver
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/property.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_stock_movement
+        depends_on:
+        - task_key: silver
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/stock_movement.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_supplier
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_supplier
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/supplier.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_therapeutic_category
+        depends_on:
+        - task_key: silver
+        - task_key: gold__context_therapeutic_category
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/therapeutic_category.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: gold_user_property
+        depends_on:
+        - task_key: silver
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        run_if: ALL_SUCCESS
+        notebook_task:
+          notebook_path: ./notebooks/gold/user_property.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
+      - task_key: validar
+        depends_on:
+        - task_key: gold__context_user_property
+        - task_key: gold__context_medicine
+        - task_key: gold__context_medicine_batch
+        - task_key: gold__context_supplier
+        - task_key: gold__context_therapeutic_category
+        - task_key: gold_access_audit
+        - task_key: gold_alert
+        - task_key: gold_animal_exception
+        - task_key: gold_animal_lot_history
+        - task_key: gold_app_user
+        - task_key: gold_application
+        - task_key: gold_application_animal
+        - task_key: gold_attachment
+        - task_key: gold_change_audit
+        - task_key: gold_daily_access
+        - task_key: gold_data_catalog
+        - task_key: gold_device
+        - task_key: gold_dim_date
+        - task_key: gold_herd
+        - task_key: gold_interaction_audit
+        - task_key: gold_load_error
+        - task_key: gold_load_mapping
+        - task_key: gold_load_run
+        - task_key: gold_load_staging
+        - task_key: gold_lot
+        - task_key: gold_medicine
+        - task_key: gold_medicine_batch
+        - task_key: gold_notification_delivery
+        - task_key: gold_occurrence
+        - task_key: gold_permission
+        - task_key: gold_property
+        - task_key: gold_stock_movement
+        - task_key: gold_supplier
+        - task_key: gold_therapeutic_category
+        - task_key: gold_user_property
+        notebook_task:
+          notebook_path: ./notebooks/04_validacao.py
+          base_parameters:
+            catalog: ${var.catalog}
+            source_schema: ${var.source_schema}
+            bronze_schema: ${var.bronze_schema}
+            silver_schema: ${var.silver_schema}
+            gold_schema: ${var.gold_schema}
 targets:
   dev:
     default: true
