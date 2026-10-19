@@ -1,0 +1,172 @@
+{
+  "name": "argos-ai-bronze-silver-gold",
+  "max_concurrent_runs": 1,
+  "parameters": [
+    {
+      "name": "catalog",
+      "default": "ai_bi"
+    },
+    {
+      "name": "bronze_schema",
+      "default": "bronze"
+    },
+    {
+      "name": "silver_schema",
+      "default": "silver"
+    },
+    {
+      "name": "gold_schema",
+      "default": "gold"
+    },
+    {
+      "name": "environment",
+      "default": "local"
+    },
+    {
+      "name": "mongo_database",
+      "default": "argos_ai"
+    },
+    {
+      "name": "mongo_secret_scope",
+      "default": ""
+    },
+    {
+      "name": "mongo_secret_key",
+      "default": ""
+    },
+    {
+      "name": "mongo_a2a_database",
+      "default": ""
+    },
+    {
+      "name": "mongo_a2a_secret_scope",
+      "default": ""
+    },
+    {
+      "name": "mongo_a2a_secret_key",
+      "default": ""
+    },
+    {
+      "name": "collections_json",
+      "default": "{}"
+    },
+    {
+      "name": "force_snapshot",
+      "default": "false"
+    },
+    {
+      "name": "lookback_minutes",
+      "default": "5"
+    },
+    {
+      "name": "page_size",
+      "default": "500"
+    },
+    {
+      "name": "max_documents_per_source",
+      "default": "1000000"
+    },
+    {
+      "name": "max_page_bytes",
+      "default": "16777216"
+    },
+    {
+      "name": "max_cycle_depth",
+      "default": "100"
+    },
+    {
+      "name": "fail_on_quarantine",
+      "default": "true"
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "bronze",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/01_bronze"
+      }
+    },
+    {
+      "task_key": "silver",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/02_silver"
+      },
+      "depends_on": [
+        {
+          "task_key": "bronze"
+        }
+      ]
+    },
+    {
+      "task_key": "g_interactions",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/gold/g_interactions"
+      },
+      "depends_on": [
+        {
+          "task_key": "silver"
+        }
+      ]
+    },
+    {
+      "task_key": "g_observations",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/gold/g_observations"
+      },
+      "depends_on": [
+        {
+          "task_key": "silver"
+        }
+      ]
+    },
+    {
+      "task_key": "g_invocations",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/gold/g_invocations"
+      },
+      "depends_on": [
+        {
+          "task_key": "silver"
+        }
+      ]
+    },
+    {
+      "task_key": "g_email_dispatches",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/gold/g_email_dispatches"
+      },
+      "depends_on": [
+        {
+          "task_key": "silver"
+        }
+      ]
+    },
+    {
+      "task_key": "validar",
+      "existing_cluster_id": "PREENCHA_CLUSTER_ID",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/argos-ai-bi/notebooks/04_validacao"
+      },
+      "depends_on": [
+        {
+          "task_key": "g_interactions"
+        },
+        {
+          "task_key": "g_observations"
+        },
+        {
+          "task_key": "g_invocations"
+        },
+        {
+          "task_key": "g_email_dispatches"
+        }
+      ]
+    }
+  ]
+}

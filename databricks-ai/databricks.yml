@@ -1,0 +1,97 @@
+bundle:
+  name: argos-ai-bi
+variables:
+  cluster_id:
+    description: ID de um compute CLASSIC dedicado, Databricks Runtime 16.4 LTS ou superior
+resources:
+  jobs:
+    argos_ai_medallion:
+      name: argos-ai-bronze-silver-gold
+      max_concurrent_runs: 1
+      parameters:
+        - name: catalog
+          default: "ai_bi"
+        - name: bronze_schema
+          default: "bronze"
+        - name: silver_schema
+          default: "silver"
+        - name: gold_schema
+          default: "gold"
+        - name: environment
+          default: "local"
+        - name: mongo_database
+          default: "argos_ai"
+        - name: mongo_secret_scope
+          default: ""
+        - name: mongo_secret_key
+          default: ""
+        - name: mongo_a2a_database
+          default: ""
+        - name: mongo_a2a_secret_scope
+          default: ""
+        - name: mongo_a2a_secret_key
+          default: ""
+        - name: collections_json
+          default: "{}"
+        - name: force_snapshot
+          default: "false"
+        - name: lookback_minutes
+          default: "5"
+        - name: page_size
+          default: "500"
+        - name: max_documents_per_source
+          default: "1000000"
+        - name: max_page_bytes
+          default: "16777216"
+        - name: max_cycle_depth
+          default: "100"
+        - name: fail_on_quarantine
+          default: "true"
+      tasks:
+        - task_key: bronze
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ./notebooks/01_bronze.py
+        - task_key: silver
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: bronze
+          notebook_task:
+            notebook_path: ./notebooks/02_silver.py
+        - task_key: g_interactions
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ./notebooks/gold/g_interactions.py
+        - task_key: g_observations
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ./notebooks/gold/g_observations.py
+        - task_key: g_invocations
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ./notebooks/gold/g_invocations.py
+        - task_key: g_email_dispatches
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ./notebooks/gold/g_email_dispatches.py
+        - task_key: validar
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: g_interactions
+            - task_key: g_observations
+            - task_key: g_invocations
+            - task_key: g_email_dispatches
+          notebook_task:
+            notebook_path: ./notebooks/04_validacao.py
+targets:
+  dev:
+    default: true
+    mode: development
