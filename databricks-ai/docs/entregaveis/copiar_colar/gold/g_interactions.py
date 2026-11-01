@@ -1,5 +1,5 @@
 # Databricks notebook source
-# Implementação: argos/common.py
+
 """Configuração e operações Delta comuns. Nenhuma credencial é registrada."""
 import hashlib
 import json
@@ -17,7 +17,7 @@ DEFAULTS = {
     'max_documents_per_source': '1000000', 'max_page_bytes': '16777216',
     'max_cycle_depth': '100', 'fail_on_quarantine': 'true',
 }
-# Alias, collection de origem, grupo lógico e modo snapshot dos arquivos.
+
 SOURCE_DEFINITIONS = (
     ('sessions', 'ai_sessions', 'main', 'snapshot'),
     ('interactions', 'ai_interactions', 'main', 'snapshot'),
@@ -56,7 +56,7 @@ def read_config(dbutils):
         except Exception:
             dbutils.widgets.text(key, value)
     config = {k: dbutils.widgets.get(k) for k in DEFAULTS if k != 'environment'}
-    # Identidade interna fixa; não é uma escolha de ambiente.
+
     config['environment'] = 'argos'
     for key in ('catalog','bronze_schema','silver_schema','gold_schema'):
         ident(config[key])
@@ -112,7 +112,7 @@ def sources(config):
     return result
 
 def config_signature(config):
-    # Identidade do lote de arquivos e dos metadados lógicos da origem.
+
     identity = dict(sources=sources(config), mode='jsonl', path=config['jsonl_path'])
     return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
 
@@ -128,7 +128,7 @@ def ensure_schemas(spark, config):
 
 def assert_delta(spark, target):
     if spark.catalog.tableExists(target):
-        # DESCRIBE DETAIL falha para view; nunca substituir view ou formato diferente.
+
         if spark.sql('DESCRIBE DETAIL '+target).first()['format'].lower() != 'delta':
             raise ValueError('Destino não é Delta: '+target)
 
@@ -149,7 +149,7 @@ def assert_unique(frame, keys, label):
         raise ValueError('PK nula/duplicada: '+label)
 
 # COMMAND ----------
-# Implementação: argos/gold.py
+
 """Uma consulta por tabela Gold: apenas SELECT e LEFT JOIN sobre Silver."""
 
 GOLD_KEYS={'g_interactions':'interaction_id','g_observations':'observation_id',
@@ -196,7 +196,7 @@ def run_gold(spark, config, name):
     if name not in GOLD_KEYS:
         raise ValueError('Tabela Gold desconhecida.')
     batch=silver_publication(spark,config)
-    # O schema Silver não pode ser alterado enquanto as tasks Gold estão executando.
+
     statement=gold_queries(config)[name]
     frame=spark.sql(statement)
     key=GOLD_KEYS[name]
@@ -231,7 +231,7 @@ def validate_pipeline(spark, config):
         if not publications.filter((F.col('env')==config['environment'])&(F.col('gold_table')==name)
             &(F.col('published_batch_id')==batch)).limit(1).count():
             raise ValueError('Task Gold ainda não confirmou publicação: '+name)
-    # Marcador de detalhe: nenhuma métrica de dashboard é materializada.
+
     marker=spark.createDataFrame([(config['environment'],batch,utcnow(),VERSION)],
         'env STRING, published_batch_id STRING, completed_at TIMESTAMP, transform_version STRING')
     write_snapshot(spark,marker,table(config,'gold','_publication'))

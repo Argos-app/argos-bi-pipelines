@@ -11,8 +11,8 @@ def gold_queries(catalog, silver_schema, source_schema, available):
     def t(name):
         return table_name(catalog, silver_schema, source_name(source_schema, name))
 
-    # Os helpers também são publicados no schema Self Service.
-    # O chamador substitui esse token pelo schema de publicação.
+
+
     def helper(name):
         return f"__GOLD__.{name}"
 
@@ -150,7 +150,7 @@ def gold_queries(catalog, silver_schema, source_schema, available):
                     + from_lot("ap.lot_id")
                 )
             else:
-                # Alert pode apontar para lote OU animal; preferência ao lote explícito.
+
                 alert_alias = "e"
                 if name == "notification_delivery":
                     joins = f'LEFT JOIN {t("alert")} a ON a.id = e.alert_id\n'
@@ -217,11 +217,11 @@ def gold_queries(catalog, silver_schema, source_schema, available):
             )
             prop = "c.property_id"
         elif name == "attachment":
-            # entity_id é polimórfico, sem FK e sem catálogo de entidades no DDL.
-            # Preserva o autor; fazenda não é inferida a partir de vínculos do autor.
+
+
             user, prop = "e.user_id", "CAST(NULL AS STRING)"
         if user is None:
-            # Metadados, cargas, calendário e novas tabelas sem relacionamento conhecido.
+
             result[name] = f"SELECT e.*, {empty_context} FROM {t(name)} e"
         else:
             joins = dimensions(joins, user, prop)

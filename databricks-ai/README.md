@@ -9,8 +9,5 @@ Entrada: snapshots completos JSONL em Volumes Unity Catalog. Execução: Job Ser
 - [Validação e limites](docs/VERIFICACAO.md)
 - [Gold e dependências](notebooks/gold/README.md)
 - [Notebooks para importar](docs/entregaveis/copiar_colar/)
-- [Pacotes Free Edition](docs/entregaveis/pacotes/)
-
-Os pacotes `argos-ai-bi-importacao.zip` e `argos-ai-bi-completo.zip` são dois formatos da mesma versão Free: notebooks autocontidos para importar, ou projeto completo com módulos e testes. Não há uma versão alternativa de compute ou conexão direta com o MongoDB.
 
 Defaults: `workspace.{bronze_ia,silver_ia,gold_ia}`. Para notebooks modulares, `project_root=/Workspace/Shared/argos-ai-bi`; para autocontidos, não é necessário importar módulos. Os notebooks usam PyMongo apenas para ler BSON/Extended JSON, sem acessar o banco.

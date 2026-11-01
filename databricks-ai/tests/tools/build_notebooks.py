@@ -32,7 +32,7 @@ def inline(modules):
     for module in modules:
         text=(ROOT/'argos'/f'{module}.py').read_text(encoding='utf-8')
         text=re.sub(r'^from \.[^\n]*\(\s*\n(?:[^\n]*\n)*?\s*\)\s*\n|^from \.[^\n]+\n','',text,flags=re.MULTILINE)
-        blocks.append('# Implementação: argos/'+module+'.py\n'+text)
+        blocks.append(text)
     return SEP.join(blocks)
 
 def write_notebook(relative, modular, standalone):
@@ -53,7 +53,7 @@ for name in NAMES:
 entry='config=read_config(dbutils)\nvalidate_pipeline(spark,config)\n'
 write_notebook('04_validacao.py',BOOT+'from argos.delta_layers import validate_pipeline\n'+SEP+entry,
     inline(('common','gold'))+SEP+entry)
-# .ipynb preserva células %pip ao importar/abrir, além dos .py de origem Databricks.
+
 for folder in ('notebooks','docs/entregaveis/copiar_colar'):
     for path in (ROOT/folder).rglob('*.py'):
         code=path.read_text(encoding='utf-8').replace(HEADER,'',1)
@@ -69,7 +69,7 @@ for folder in ('notebooks','docs/entregaveis/copiar_colar'):
         output.parent.mkdir(parents=True,exist_ok=True)
         output.with_suffix('.ipynb').write_text(json.dumps(notebook,ensure_ascii=False,indent=1)+'\n',encoding='utf-8')
 
-# Arquivo Jobs API pode ser importado sem CLI; bundle usa o mesmo DAG.
+
 import sys
 sys.path.insert(0, str(ROOT))
 from argos.common import DEFAULTS
@@ -109,17 +109,17 @@ yaml+='targets:\n  dev:\n    default: true\n    mode: development\n'
 (ROOT/'argos/requirements.txt').write_text('pymongo==4.19.0\n',encoding='utf-8')
 dashboard=ROOT/'docs'/'queries-dashboard.sql'
 dashboard.parent.mkdir(exist_ok=True)
-# Um arquivo SQL por dataset, seguindo o padrao relacional.
-names=['01_uso_semanal','02_tokens_custos','03_latencia_etapas','04_latencia_interagentes',
-       '05_indice_erros','06_throughput_agentes','07_custo_interacao','08_custo_resolucao',
-       '08b_cobertura_ciclos','09_projecao_custos','10_confiabilidade_http','11_uso_ferramentas',
-       '12_recorrencia_falhas','13a_degradacao','13b_qualidade_juiz','14_email','15_cobertura_observabilidade',
-       '16_roi','17_distribuicao_latencia']
+
+names=['uso_01_uso_semanal','custos_02_tokens_custos','operacional_03_latencia_etapas','operacional_04_latencia_interagentes',
+       'operacional_05_indice_erros','operacional_06_throughput_agentes','custos_07_custo_interacao','custos_08_custo_resolucao',
+       'operacional_08b_cobertura_ciclos','custos_09_projecao_custos','operacional_10_confiabilidade_http','operacional_11_uso_ferramentas',
+       'operacional_12_recorrencia_falhas','operacional_13a_degradacao','qualidade_13b_qualidade_juiz','email_14_email','operacional_15_cobertura_observabilidade',
+       'custos_16_roi','operacional_17_distribuicao_latencia']
 parts=re.split(r'(?=^-- Q\d+[ab]?\.)',dashboard.read_text(encoding='utf-8'),flags=re.MULTILINE)
 assert len(parts)==len(names)+1
 for name,block in zip(names,parts[1:]):
     path = ROOT/'dashboards'/f'{name}.sql'
-    content = parts[0]+block
+    content = parts[0]+re.sub(r'^-- Q\d+[ab]?\.[^\n]*\n', '', block)
     if not path.exists() or path.read_text(encoding='utf-8').rstrip() != content.rstrip():
         path.write_text(content,encoding='utf-8')
 print('7 notebooks modulares + 7 autocontidos (.py e .ipynb); Job JSON/YAML e SQL atualizados.')

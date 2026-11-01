@@ -2,7 +2,7 @@
 # MAGIC %pip install pymongo==4.19.0
 
 # COMMAND ----------
-# Implementação: argos/common.py
+
 """Configuração e operações Delta comuns. Nenhuma credencial é registrada."""
 import hashlib
 import json
@@ -20,7 +20,7 @@ DEFAULTS = {
     'max_documents_per_source': '1000000', 'max_page_bytes': '16777216',
     'max_cycle_depth': '100', 'fail_on_quarantine': 'true',
 }
-# Alias, collection de origem, grupo lógico e modo snapshot dos arquivos.
+
 SOURCE_DEFINITIONS = (
     ('sessions', 'ai_sessions', 'main', 'snapshot'),
     ('interactions', 'ai_interactions', 'main', 'snapshot'),
@@ -59,7 +59,7 @@ def read_config(dbutils):
         except Exception:
             dbutils.widgets.text(key, value)
     config = {k: dbutils.widgets.get(k) for k in DEFAULTS if k != 'environment'}
-    # Identidade interna fixa; não é uma escolha de ambiente.
+
     config['environment'] = 'argos'
     for key in ('catalog','bronze_schema','silver_schema','gold_schema'):
         ident(config[key])
@@ -115,7 +115,7 @@ def sources(config):
     return result
 
 def config_signature(config):
-    # Identidade do lote de arquivos e dos metadados lógicos da origem.
+
     identity = dict(sources=sources(config), mode='jsonl', path=config['jsonl_path'])
     return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
 
@@ -131,7 +131,7 @@ def ensure_schemas(spark, config):
 
 def assert_delta(spark, target):
     if spark.catalog.tableExists(target):
-        # DESCRIBE DETAIL falha para view; nunca substituir view ou formato diferente.
+
         if spark.sql('DESCRIBE DETAIL '+target).first()['format'].lower() != 'delta':
             raise ValueError('Destino não é Delta: '+target)
 
@@ -152,7 +152,7 @@ def assert_unique(frame, keys, label):
         raise ValueError('PK nula/duplicada: '+label)
 
 # COMMAND ----------
-# Implementação: argos/schemas.py
+
 """Descritores explícitos: produzem DDL Spark e validação Python idênticos."""
 def obj(**fields):
     return fields
@@ -236,7 +236,7 @@ def ddl(spec):
     return spec
 
 def frame_schema(spark, spec):
-    # Public API compatível com Spark 3/4; não depende de StructType.fromDDL.
+
     return spark.createDataFrame([],','.join('`'+k+'` '+ddl(v) for k,v in spec.items())).schema
 
 BRONZE_DDL='''env STRING, source_alias STRING, source_database STRING, source_collection STRING,
@@ -251,7 +251,7 @@ RUN_DDL='''env STRING, run_id STRING, run_started_at TIMESTAMP, completed_at TIM
  source_signature STRING, source_aliases ARRAY<STRING>, extractor_version STRING'''
 
 # COMMAND ----------
-# Implementação: argos/bronze.py
+
 """Free Edition: snapshots JSONL de Volumes para Bronze Delta."""
 import hashlib
 import json
@@ -293,7 +293,7 @@ def ensure_bronze_table(spark, target):
     assert_delta(spark, target)
     spark.sql('CREATE TABLE IF NOT EXISTS ' + target + ' (' + BRONZE_DDL + ') USING DELTA')
     existing = set(spark.table(target).schema.fieldNames())
-    # Migração aditiva de metadados para tabelas criadas antes do modo JSONL.
+
     for name, kind in (('source_file', 'STRING'), ('source_record', 'BIGINT')):
         if name not in existing:
             spark.sql('ALTER TABLE ' + target + ' ADD COLUMNS (' + name + ' ' + kind + ')')
@@ -390,6 +390,6 @@ def ingest_jsonl(spark, config):
     return run_id
 
 # COMMAND ----------
-# Snapshot JSONL completo em jsonl_path (/Volumes).
+
 config=read_config(dbutils)
 ingest(spark,config)

@@ -4,7 +4,7 @@ Esta instalação parte de **nenhum schema e nenhuma tabela de destino**. Use um
 
 ## 1. Escolher o catálogo
 
-Abra **Catalog** e escolha um catálogo que já exista e no qual você possa criar schemas. Na Free Edition, normalmente use `workspace`, se estiver disponível. O default dos notebooks é `main`; informe `workspace` nos parâmetros do Job quando esse for seu catálogo. O projeto cria schemas e tabelas, mas não cria um catálogo nem o banco PostgreSQL de origem.
+Abra **Catalog** e escolha um catálogo que já exista e no qual você possa criar schemas. Por exemplo, use `workspace`, se estiver disponível e você tiver permissão. O default dos notebooks é `main`; informe `workspace` nos parâmetros do Job quando esse for seu catálogo. O projeto cria schemas e tabelas, mas não cria um catálogo nem o banco PostgreSQL de origem.
 
 ## 2. Importar os arquivos para o Workspace
 
@@ -75,7 +75,7 @@ Adicione as 35 tasks Gold usando os nomes, os notebooks e todas as dependências
 
 Por último, crie `validar`, apontando para `04_validacao`, dependendo de todas as 35 tasks Gold com **All succeeded**. Em **Job details → Advanced settings**, mantenha **Maximum concurrent runs = 1**. Não configure agendamento até concluir a primeira execução.
 
-## 7. Lotes Gold e limite Free
+## 7. Lotes Gold e dependências
 
 | Lote | Atividades | Aguarda |
 |---|---|---|
@@ -89,7 +89,7 @@ Por último, crie `validar`, apontando para `04_validacao`, dependendo de todas 
 
 Cada task aguarda todas as tasks do lote anterior, além de `silver` e dos contextos de negócio. No lote 1, fornecedor e categoria aguardam `_context_medicine`; por isso são até cinco simultâneas, não obrigatoriamente cinco. O lote seguinte só inicia quando o anterior inteiro termina com sucesso. Uma falha bloqueia os posteriores e a validação.
 
-O limite Free é de **cinco tasks simultâneas por conta**; evite outros Jobs simultâneos. `max_concurrent_runs=1` limita execuções completas deste Job, enquanto as barreiras entre lotes limitam suas tasks. Isso não elimina quotas de compute ou restrições de rede. [Limitações oficiais](https://docs.databricks.com/aws/en/getting-started/free-edition-limitations).
+Os lotes de até cinco tasks são uma característica da configuração atual do job, não um limite imposto aqui à sua conta. `max_concurrent_runs=1` impede execuções simultâneas completas do mesmo job; ele não limita, por si só, o paralelismo entre suas tasks. O paralelismo efetivo também depende do compute e das configurações do workspace. Para aumentá-lo, revise as dependências no `databricks.yml` e preserve os vínculos de dados antes de implantar.
 
 ```text
 bronze → silver → lote 1 → lote 2 → lote 3 → lote 4 → lote 5 → lote 6 → lote 7 → validar
@@ -163,4 +163,4 @@ As tabelas devem ter formato `DELTA`. Bronze/Silver usam nomes como `public__app
 
 Use cada arquivo em `dashboards/` como dataset. Ajuste `main.self_service` para o catálogo/schema configurado no Job. Os parâmetros, gráficos e granularidades estão no [README principal](../README.md).
 
-Para adicionar uma nova Gold, copie `_template.py.txt`, implemente seu SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Crie sua task no lote 8, aguardando as cinco tasks do lote 7, `silver` e os contextos utilizados. Adicione-a às dependências de `validar`. O lote 8 admite até cinco tasks; depois inicie outro lote aguardando todas elas. Nenhum notebook Gold existente precisa ser alterado. Veja o [guia Gold](../notebooks/gold/README.md).
+Para adicionar uma nova Gold, copie `_template.py.txt`, implemente seu SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Adicione uma task ao job após `silver` e os contextos necessários e inclua-a nas dependências de `validar`. Se mantiver as barreiras atuais de lotes, faça a nova task aguardar o lote anterior; a quantidade de tasks pode ser revista conforme o compute e as dependências reais. Nenhum notebook Gold existente precisa ser alterado. Veja o [guia Gold](../notebooks/gold/README.md).

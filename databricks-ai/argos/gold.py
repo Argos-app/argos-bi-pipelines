@@ -74,7 +74,7 @@ def run_gold(spark, config, name):
     if name not in GOLD_KEYS:
         raise ValueError("Tabela Gold desconhecida.")
     batch = silver_publication(spark, config)
-    # O schema Silver não pode ser alterado enquanto as tasks Gold estão executando.
+
     statement = gold_queries(config)[name]
     frame = spark.sql(statement)
     key = GOLD_KEYS[name]
@@ -123,7 +123,7 @@ def validate_pipeline(spark, config):
             .count()
         ):
             raise ValueError("Task Gold ainda não confirmou publicação: " + name)
-    # Marcador de detalhe: nenhuma métrica de dashboard é materializada.
+
     marker = spark.createDataFrame(
         [(config["environment"], batch, utcnow(), VERSION)],
         "env STRING, published_batch_id STRING, completed_at TIMESTAMP, transform_version STRING",

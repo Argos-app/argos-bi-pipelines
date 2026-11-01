@@ -58,7 +58,7 @@ def assert_delta_targets(spark, catalog, targets, require_exists=False):
 
 
 def write_snapshot(frame, target):
-    # Overwrite de uma tabela Delta: commit atômico por tabela, sem DROP TABLE.
+
     frame.write.format("delta").mode("overwrite").option(
         "overwriteSchema", "true"
     ).saveAsTable(target)
@@ -112,7 +112,7 @@ def run_silver(spark, config):
     ]
     assert_delta_targets(spark, catalog, targets)
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {namespace(catalog, schema)}")
-    # Planeja todas as consultas antes de iniciar os writes.
+
     plans = []
     for item in manifest:
         bronze = table_name(

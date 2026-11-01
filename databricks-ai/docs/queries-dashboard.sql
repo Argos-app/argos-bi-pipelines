@@ -1,12 +1,3 @@
--- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
--- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
--- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
--- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
--- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
--- Para homologação mudar conscientemente 'real' para 'mock'; nunca misturar sem rótulo.
-
 -- Q01. Uso semanal e WAU (semanas parciais visíveis pelas datas dos parâmetros).
 WITH b AS (
   SELECT *, date_trunc('week',from_utc_timestamp(created_at,'America/Sao_Paulo')) AS semana
@@ -72,8 +63,6 @@ GROUP BY service,operation_kind,operation_name,observation_level,agent,
          coalesce(model_returned,model_requested),request_route,status;
 
 -- Q04. União de intervalos de agentes FILHOS DIRETOS de cada grafo.
--- Não usa SUM(duration_ms) como tempo de resposta. Relógios apenas do mesmo serviço.
--- Sem filtro de agente para não transformar decomposição em execução parcial escondida.
 WITH g AS (
   SELECT * FROM workspace.gold_ia.g_observations
   WHERE execution_mode='real' AND operation_kind='graph'
@@ -129,7 +118,6 @@ LEFT JOIN coverage c ON g.env=c.env AND g.observation_id=c.graph_id
 GROUP BY g.operation_name;
 
 -- Q05. Erros por estrato. Falha filtra o NUMERADOR, não o denominador.
--- Grão de denominador: mesma operação/nível/agente/modelo/endpoint, todas as tentativas terminais.
 WITH b AS (
   SELECT * FROM workspace.gold_ia.g_observations
   WHERE execution_mode='real' AND status<>'started'
@@ -175,8 +163,6 @@ GROUP BY date_trunc('hour',ended_at),service,agent,operation_name,
   least(date_trunc('hour',ended_at)+INTERVAL 1 HOUR,CAST(:fim AS TIMESTAMP));
 
 -- Q07. Custo por interação da COORTE criada no período, todo ciclo da interação disponível.
--- Não limitar spans por started_at: incluir términos tardios da mesma interação.
--- USD apenas; moedas outras ficam desconhecidas para esta medida. Sem conversão implícita.
 WITH cohort AS (
   SELECT * FROM workspace.gold_ia.g_interactions
   WHERE created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
@@ -213,8 +199,6 @@ SELECT interaction_status,count(*) AS interacoes,
 FROM j GROUP BY interaction_status;
 
 -- Q08. Custo por resolução TÉCNICA de ciclo (não satisfação ou acurácia).
--- raíz na janela; membros e custos lidos sem corte de data para capturar esclarecimentos.
--- s_cycle_membership só marca valid após validar cadeia, pergunta, titular e ausência de branches.
 WITH roots AS (
   SELECT * FROM workspace.gold_ia.g_interactions
   WHERE interaction_kind='message'
@@ -279,7 +263,6 @@ WHERE interaction_kind='message'
 GROUP BY link_status;
 
 -- Q09. Projeção semanal 100 e 1.000 WAU; todas as tarifas são parâmetros auditáveis.
--- Entradas inválidas/ausentes devolvem NULL, não orçamento incompleto como total.
 WITH profile AS (
   SELECT from_json(:perfil_json,
     'ARRAY<STRUCT<agente:STRING,modelo:STRING,chamadas_por_pergunta:DOUBLE,tentativas_medias:DOUBLE,input_tokens:DOUBLE,output_tokens:DOUBLE,preco_input_m:DOUBLE,preco_output_m:DOUBLE,fonte_preco:STRING,data_preco:STRING>>') AS rows
@@ -344,7 +327,6 @@ WHERE execution_mode='real' AND operation_kind='http'
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:endpoint),'') IS NULL OR request_route=:endpoint)
 GROUP BY request_route,request_method;
--- Sem filtro de fazenda: HTTP pré-interação em geral não possui session_id.
 
 -- Q11. Uso de ferramentas: invocações pareadas, não contagem de mensagens/eventos.
 SELECT target_name,count(*) AS invocacoes,
@@ -382,7 +364,6 @@ FROM b GROUP BY date_trunc('day',started_at),service,agent,operation_kind,operat
        observation_level,error.origin,error.type,error.code,request_route,coalesce(model_returned,model_requested);
 
 -- Q13a. Qualidade operacional: degradação, com filtro de presença no array.
--- População filtrada por motivo é explicitamente outra população; não chamar taxa global.
 SELECT response_kind,count(*) AS interacoes_terminais,
        count_if(interaction_status='degraded') AS degradadas,
        count_if(interaction_status='degraded')*1.0/nullif(count(*),0) AS taxa_degradacao_populacao_filtrada,
@@ -432,7 +413,6 @@ WHERE started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTA
 GROUP BY service,operation_kind,execution_mode;
 
 -- Q16. ROI informado para a mesma coorte e moeda: entradas são premissas auditáveis.
--- O retorno e o custo total devem cobrir o mesmo período/filtros. Não inferir receita.
 WITH p AS (
  SELECT try_cast(:retorno_usd AS DOUBLE) AS retorno,
         try_cast(:custo_total_usd AS DOUBLE) AS custo

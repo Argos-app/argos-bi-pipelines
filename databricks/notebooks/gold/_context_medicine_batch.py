@@ -9,7 +9,7 @@ import sys
 import importlib
 from pathlib import Path
 
-# Também funciona quando o .py é importado como notebook, sem __file__.
+
 for candidate in (Path.cwd(), *Path.cwd().parents):
     if (candidate / 'argos').is_dir():
         sys.path.insert(0, str(candidate))

@@ -139,7 +139,7 @@ class ServerlessTests(unittest.TestCase):
             states = [rows[0] for target, rows in appends if '_ingestion_state' in target]
             self.assertEqual(len(states), 15)
             self.assertTrue(all(state['is_snapshot'] for state in states))
-            self.assertEqual(states[5]['documents'], 0)  # A2A vazio é um snapshot válido.
+            self.assertEqual(states[5]['documents'], 0)
             self.assertEqual(len([t for t,r in appends if t.endswith('`_runs`')]), 1)
             self.assertTrue(all(len(rows) <= 2 for target, rows in pages))
             records = [row for target, rows in pages for row in rows]

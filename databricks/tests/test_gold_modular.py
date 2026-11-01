@@ -58,8 +58,8 @@ class ModularGoldTests(unittest.TestCase):
                 captured = capture_notebook(ROOT / 'notebooks/gold' / (name + '.py'))
                 expected_sql = statement.replace('__GOLD__', '`argos`.`self_service`')
                 self.assertEqual(captured['name'], name)
-                # Identificadores de helpers agora recebem aspas de forma uniforme.
-                # Compara a árvore SQL renderizada com identificação completa.
+
+
                 self.assertEqual(
                     sqlglot.parse_one(captured['statement'], read='databricks').sql(dialect='databricks', identify=True),
                     sqlglot.parse_one(expected_sql, read='databricks').sql(dialect='databricks', identify=True))
@@ -152,7 +152,7 @@ class ModularGoldTests(unittest.TestCase):
                 self.assertNotIn('validar', successful)
 
     def test_notebook_queries_return_same_rows_and_schema_as_previous_gold(self):
-        # Usa o mesmo banco sintético que verifica as 30 tabelas e cardinalidades.
+
         fixture = sql_tests.MedallionTests()
         fixture.setUp()
         try:

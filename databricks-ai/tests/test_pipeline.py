@@ -185,7 +185,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('array_contains',q)
         self.assertEqual(len(list((ROOT/'dashboards').glob('*.sql'))),19)
         for spec in SCHEMAS.values():
-            # Também validar sintaxe dos schemas aninhados no dialeto Databricks.
+
             sqlglot.parse_one('CREATE TABLE t (r '+ddl(spec)+') USING DELTA',read='databricks')
 
     def test_job_dag_and_notebook_paths(self):

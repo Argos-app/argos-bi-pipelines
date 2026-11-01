@@ -23,8 +23,8 @@ importlib.reload(bronze_module)
 ingest = bronze_module.ingest
 
 # COMMAND ----------
-# Preencha a senha diretamente nesta célula antes de executar.
-# Credenciais não são widgets nem parâmetros do Job.
+
+
 jdbc_user = "avnadmin"
 jdbc_password = "PREENCHA_A_SENHA_DO_BANCO"
 

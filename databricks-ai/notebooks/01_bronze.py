@@ -17,6 +17,6 @@ from argos.common import read_config
 from argos.bronze import ingest
 
 # COMMAND ----------
-# Snapshot JSONL completo em jsonl_path (/Volumes).
+
 config=read_config(dbutils)
 ingest(spark,config)

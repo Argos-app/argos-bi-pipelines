@@ -18,7 +18,7 @@ def source_name(schema, name):
 
 
 def ingestion_mode(columns, force_snapshot=False):
-    # created_at sozinho não registra UPDATEs (alert, daily_access, device...).
+
     return (
         "incremental" if "updated_at" in columns and not force_snapshot else "snapshot"
     )

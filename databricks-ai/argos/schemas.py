@@ -81,7 +81,7 @@ def ddl(spec):
     return spec
 
 def frame_schema(spark, spec):
-    # Public API compatível com Spark 3/4; não depende de StructType.fromDDL.
+
     return spark.createDataFrame([],','.join('`'+k+'` '+ddl(v) for k,v in spec.items())).schema
 
 BRONZE_DDL='''env STRING, source_alias STRING, source_database STRING, source_collection STRING,

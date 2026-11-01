@@ -91,7 +91,7 @@ def typed_value(value, spec, path, errors):
             result = Decimal(value)
             if not result.is_finite():
                 raise ValueError()
-            # Falhar em vez de arredondar silenciosamente no Spark.
+
             exponent = result.as_tuple().exponent
             if max(0, -exponent) > scale or result.adjusted() + 1 > precision - scale:
                 raise ValueError()
@@ -464,7 +464,7 @@ def parse_record(alias, raw):
         doc = prepare_document(alias, doc)
         record = typed_value(doc, SCHEMAS[alias], alias, errors)
         validate_record(alias, record, errors)
-        # Hash sem updated_at permite identificar dois terminais semanticamente divergentes.
+
         import hashlib
 
         semantic = dict(doc)
@@ -483,7 +483,7 @@ def parse_record(alias, raw):
             "semantic_hash": semantic_hash,
         }
     except Exception:
-        # Só códigos de regra, sem texto que possa conter conteúdo/credenciais.
+
         return {
             "record": None,
             "errors": ["document:unparseable"],

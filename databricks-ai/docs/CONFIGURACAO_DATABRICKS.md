@@ -60,7 +60,7 @@ collections/arquivos diferentes não constitui uma transação única da origem.
 
 ## 4. Importar os notebooks
 
-Extraia `docs/entregaveis/pacotes/argos-ai-bi-importacao.zip` e importe os `.ipynb`
+Importe os arquivos `.ipynb` de `docs/entregaveis/copiar_colar/`
 em `/Workspace/Shared/argos-ai-bi/notebooks/`, preservando a subpasta `gold`.
 Os notebooks são autocontidos e evitam dependência do diretório de trabalho.
 
@@ -160,4 +160,4 @@ na primeira execução do Job. A leitura do Mongo é feita fora do Databricks pa
 
 ## Visualizações SRE
 
-Use os datasets de uso, custos, latências, erros e resolução para cards e séries temporais. `16_roi.sql` calcula ROI com retorno bruto e custo total informados para a mesma coorte, período e moeda; sem valores válidos retorna NULL. `17_distribuicao_latencia.sql` fornece observações individuais para histogramas e boxplots, separados por operação e nível; não some durações de spans. Compare KPIs com uma consulta do período anterior usando a mesma janela e filtros. A projeção de 100 e 1.000 usuários depende de tarifas e volumes fornecidos, não é uma medição. O cadastro relacional possui cidade e estado, mas não coordenadas; só use mapa com geocodificação confiável e aprovada. Filtros analíticos não substituem autorização no Unity Catalog.
+Use os datasets de uso, custos, latências, erros e resolução para cards e séries temporais. `custos_16_roi.sql` calcula ROI com retorno bruto e custo total informados para a mesma coorte, período e moeda; sem valores válidos retorna NULL. `operacional_17_distribuicao_latencia.sql` fornece observações individuais para histogramas e boxplots, separados por operação e nível; não some durações de spans. Compare KPIs com uma consulta do período anterior usando a mesma janela e filtros. A projeção de 100 e 1.000 usuários depende de tarifas e volumes fornecidos, não é uma medição. O cadastro relacional possui cidade e estado, mas não coordenadas; só use mapa com geocodificação confiável e aprovada. Filtros analíticos não substituem autorização no Unity Catalog.

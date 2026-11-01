@@ -86,7 +86,7 @@ for item in manifest:
         null_pk = silver.where(null_condition).limit(1).count()
         if duplicate or null_pk:
             errors.append(f"{name}: PK duplicada ou nula na Silver")
-    # Gold usa o schema de origem configurado no Job; apenas um schema por Job.
+
     gold = spark.table(table_name(catalog, config["gold_schema"], name))
     silver_count, gold_count = silver.count(), gold.count()
     if name in facts and gold_count != silver_count:

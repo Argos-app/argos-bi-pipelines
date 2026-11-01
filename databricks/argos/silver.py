@@ -4,7 +4,7 @@ from argos.common import sql_ident
 
 
 def silver_query(bronze, state, source_schema, name, keys, fields):
-    # fields: pares (nome, é_string). Metadados e IDs em string também recebem UPPER.
+
     columns = [column for column, _ in fields if not column.startswith("_")]
     keys = keys or columns
     partition = ", ".join(sql_ident(column) for column in keys)
@@ -19,7 +19,7 @@ def silver_query(bronze, state, source_schema, name, keys, fields):
     )
     literal_schema = source_schema.replace("'", "''")
     literal_name = name.replace("'", "''")
-    # Seleciona o último marcador concluído; permite esvaziar Silver após snapshot vazio.
+
     return f"""WITH latest_state AS (
         SELECT batch_id, mode FROM (
             SELECT *, row_number() OVER (ORDER BY completed_at DESC, batch_id DESC) AS _state_rn

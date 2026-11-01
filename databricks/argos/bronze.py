@@ -44,7 +44,7 @@ def ingest(spark, config):
         mode STRING, completed_at TIMESTAMP
     ) USING DELTA""")
     source_schema = config["source_schema"].replace("'", "''")
-    # Sem HAVING: inclui permission, user_property, notification_delivery etc.
+
     columns = query(
         f"""SELECT t.table_schema, t.table_name, c.column_name, c.ordinal_position, c.data_type
         FROM information_schema.tables t
@@ -69,7 +69,7 @@ def ingest(spark, config):
         }
         removed = previous - set(tables)
         if removed:
-            # Evita publicar um inventário incompleto quando tabelas da origem deixam de estar visíveis.
+
             raise ValueError(
                 f"Tabelas antes ingeridas não foram encontradas: {sorted(removed)}. "
                 "Confira a conexão, as permissões e o schema da origem antes de continuar."
@@ -122,7 +122,7 @@ def ingest(spark, config):
             )
             if watermark is not None:
                 cutoff = watermark - timedelta(hours=lookback)
-        # Inclui timestamps nulos; não perde registros da primeira carga.
+
         where = ""
         if cutoff is not None:
             formatted = cutoff.strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -131,7 +131,7 @@ def ingest(spark, config):
         frame = query(
             f"SELECT {projection}, {event} AS _change_at FROM {origin} {where}"
         )
-        # Conteúdo faz parte da identidade da versão: timestamp igual pode ter UPDATE.
+
         frame = frame.withColumn(
             "_row_hash",
             F.sha2(
@@ -170,7 +170,7 @@ def ingest(spark, config):
         frame.write.format("delta").mode("append").option(
             "mergeSchema", "true"
         ).saveAsTable(target)
-        # Marcador depois do append. Snapshot vazio também publica um marcador.
+
         completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         spark.createDataFrame(
             [(origin_schema, name, batch_id, mode, completed_at)],
@@ -178,7 +178,7 @@ def ingest(spark, config):
         ).write.format("delta").mode("append").saveAsTable(state)
         metadata.append((origin_schema, name, pks[(origin_schema, name)]))
         print(f"Append concluído: {target} ({mode})")
-    # Publica só depois de todas as tabelas concluírem. Job: max_concurrent_runs=1.
+
     spark.createDataFrame(
         metadata, "source_schema string, table_name string, primary_keys array<string>"
     ).write.format("delta").mode("overwrite").saveAsTable(manifest)

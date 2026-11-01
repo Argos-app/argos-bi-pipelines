@@ -21,7 +21,7 @@ CONTRACT = json.loads((ROOT / 'tests/schema_contract.json').read_text())
 
 
 def translate(query):
-    # Spark percentile_approx aceita accuracy; DuckDB approx_quantile não aceita.
+
     import re
     query = re.sub(r'percentile_approx\((\w+), ([0-9.]+), 10000\)',
                    r'percentile_approx(\1, \2)', query)
@@ -94,7 +94,7 @@ class MedallionTests(unittest.TestCase):
         parameters.update(params)
         for key, value in list(parameters.items()):
             if key in {'usuarios', 'fazendas', 'medicamentos'}:
-                # Em DuckDB, parâmetros multiselect são arrays tipados.
+
                 parameters[key] = value
         return self.db.execute(translate(query), parameters).fetchall()
 
@@ -118,7 +118,7 @@ class MedallionTests(unittest.TestCase):
     def test_medicine_context_and_unused_medicine(self):
         self.seed()
         rows = self.db.execute('SELECT id, sf_user_id, sf_property_id FROM argos.self_service.medicine ORDER BY id, sf_user_id, sf_property_id').fetchall()
-        self.assertEqual(len(rows), 4)  # M1: duas fazendas + estoque sem fazenda; M2: catálogo sem uso.
+        self.assertEqual(len(rows), 4)
         self.assertIn(('M2', None, None), rows)
 
     def test_stock_without_application_does_not_invent_a_property(self):
@@ -141,9 +141,9 @@ class MedallionTests(unittest.TestCase):
         self.insert('application', id='AP3', lot_id='L1', user_id='U2',
                     medicine_batch_id='MB1', application_date='2026-10-01',
                     head_count_applied=5, active=False)
-        all_rows = self.dashboard('13_aplicacoes_propriedade_dia.sql')
+        all_rows = self.dashboard('medicacao_13_aplicacoes_propriedade_dia.sql')
         self.assertEqual(all_rows, [('P1', 20261001, 2, 15), ('P2', 20261001, 1, 10)])
-        filtered = self.dashboard('13_aplicacoes_propriedade_dia.sql', usuarios=['U2'], fazendas=['P1'])
+        filtered = self.dashboard('medicacao_13_aplicacoes_propriedade_dia.sql', usuarios=['U2'], fazendas=['P1'])
         self.assertEqual(filtered, [('P1', 20261001, 1, 5)])
 
     def test_all_dashboard_queries_bind_and_execute(self):
@@ -159,21 +159,21 @@ class MedallionTests(unittest.TestCase):
 
     def test_array_contains_filters_before_aggregation(self):
         self.seed()
-        rows = self.dashboard('01_aplicacoes_temporal.sql', usuarios=['U1'], fazendas=['P1'], medicamentos=['M1'])
+        rows = self.dashboard('medicacao_01_aplicacoes_temporal.sql', usuarios=['U1'], fazendas=['P1'], medicamentos=['M1'])
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][6:8], (1, 10))
-        self.assertEqual(self.dashboard('01_aplicacoes_temporal.sql', usuarios=['U1'], fazendas=['P2']), [])
+        self.assertEqual(self.dashboard('medicacao_01_aplicacoes_temporal.sql', usuarios=['U1'], fazendas=['P2']), [])
 
     def test_histogram_frequency_and_invalid_bin(self):
         self.seed()
-        rows = self.dashboard('05_histograma_pesos.sql', largura_bin_kg=50)
+        rows = self.dashboard('animal_05_histograma_pesos.sql', largura_bin_kg=50)
         self.assertEqual(sum(row[-1] for row in rows), 9)
-        self.assertEqual(self.dashboard('05_histograma_pesos.sql', largura_bin_kg=0), [])
+        self.assertEqual(self.dashboard('animal_05_histograma_pesos.sql', largura_bin_kg=0), [])
 
     def test_boxplot_raw_and_tukey_outliers(self):
         self.seed()
-        self.assertEqual(len(self.dashboard('06_boxplot_pesos_observacoes.sql')), 9)
-        summary = self.dashboard('08_boxplot_pesos_estatisticas.sql')[0]
+        self.assertEqual(len(self.dashboard('animal_06_boxplot_pesos_observacoes.sql')), 9)
+        summary = self.dashboard('animal_08_boxplot_pesos_estatisticas.sql')[0]
         self.assertEqual(summary[-1], 1)
         self.assertEqual(summary[-2], 370)
 
@@ -259,7 +259,7 @@ class MedallionTests(unittest.TestCase):
         from unittest.mock import patch
         captured, widgets = {}, {}
         module = ModuleType('argos.bronze')
-        # Simula exatamente a função antiga mantida no cache da sessão.
+
         module.ingest = lambda spark, dbutils, config: captured.update(config)
         reloaded = []
 

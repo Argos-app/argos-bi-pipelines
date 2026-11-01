@@ -1,4 +1,3 @@
-# Gold: sete lotes de ate cinco tasks; cada lote aguarda todo o anterior.
 bundle:
   name: argos-medallion
 variables:

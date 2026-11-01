@@ -19,7 +19,7 @@ A Bronze mantém append JDBC; a Silver e a Gold atualizam snapshots com `format(
 | `argos/delta_layers.py` | Criação e gravação batch de tabelas Delta |
 | `argos/common.py`, `bronze.py`, `silver.py`, `gold.py` | Funções e transformações compartilhadas |
 | `databricks.yml` | Bundle do mesmo Job com Bronze, Silver, atividades Gold independentes e validação |
-| `dashboards/*.sql` | 13 datasets SQL de gráficos e filtros |
+| `dashboards/*.sql` | 19 datasets SQL de gráficos e filtros |
 
 
 ## Instalação nova pela interface
@@ -64,19 +64,25 @@ Cole cada SQL de `dashboards/` como dataset separado. As agregações ficam ness
 
 | Arquivo | Visualização |
 |---|---|
-| `01_aplicacoes_temporal.sql` | Barras: mês × aplicações/atendimentos; separar medicamento e unidade |
-| `02_ocorrencias_temporal.sql` | Barras: mês × ocorrências; cor por tipo |
-| `03_estoque_temporal.sql` | Barras: mês × entradas/saídas/saldo do intervalo |
-| `04_histograma_doses.sql` | Frequências por faixa de dose |
-| `05_histograma_pesos.sql` | Frequências por faixa de peso observado |
-| `06_boxplot_pesos_observacoes.sql` | Boxplot ou histograma nativo de peso por fazenda |
-| `07_boxplot_doses_observacoes.sql` | Boxplot ou histograma nativo de dose por medicamento/unidade |
-| `08_boxplot_pesos_estatisticas.sql` | Quartis, IQR, bigodes de Tukey e outliers para tabela/visual customizado |
-| `09_rebanhos_por_fazenda.sql` | Barras do estado atual do número de cabeças por fazenda/raça |
-| `10_filtro_usuarios.sql` | Opções do filtro de usuários |
-| `11_filtro_fazendas.sql` | Opções do filtro de fazendas |
-| `12_filtro_medicamentos.sql` | Opções do filtro de medicamentos |
-| `13_aplicacoes_propriedade_dia.sql` | Aplicações e cabeças por propriedade e dia, seguindo a view PostgreSQL |
+| `medicacao_01_aplicacoes_temporal.sql` | Barras: mês × aplicações/atendimentos; separar medicamento e unidade |
+| `animal_02_ocorrencias_temporal.sql` | Barras: mês × ocorrências; cor por tipo |
+| `medicacao_03_estoque_temporal.sql` | Barras: mês × entradas/saídas/saldo do intervalo |
+| `medicacao_04_histograma_doses.sql` | Frequências por faixa de dose |
+| `animal_05_histograma_pesos.sql` | Frequências por faixa de peso observado |
+| `animal_06_boxplot_pesos_observacoes.sql` | Boxplot ou histograma nativo de peso por fazenda |
+| `medicacao_07_boxplot_doses_observacoes.sql` | Boxplot ou histograma nativo de dose por medicamento/unidade |
+| `animal_08_boxplot_pesos_estatisticas.sql` | Quartis, IQR, bigodes de Tukey e outliers para tabela/visual customizado |
+| `animal_09_rebanhos_por_fazenda.sql` | Barras do estado atual do número de cabeças por fazenda/raça |
+| `acesso_10_filtro_usuarios.sql` | Opções do filtro de usuários |
+| `propriedade_11_filtro_fazendas.sql` | Opções do filtro de fazendas |
+| `medicacao_12_filtro_medicamentos.sql` | Opções do filtro de medicamentos |
+| `medicacao_13_aplicacoes_propriedade_dia.sql` | Aplicações e cabeças por propriedade e dia, seguindo a view PostgreSQL |
+| `operacional_14_alertas_por_status.sql` | Alertas por mês, severidade e status |
+| `animal_15_ocorrencias_resolucao.sql` | Ocorrências abertas, resolvidas e tempo médio de resolução |
+| `animal_16_lotes_situacao.sql` | Lotes ativos e cabeças por categoria e situação de abate |
+| `medicacao_17_validade_lotes.sql` | Lotes de medicamentos por faixa de validade |
+| `acesso_18_uso_diario.sql` | Usuários e sessões por dia e origem |
+| `propriedade_19_distribuicao_geografica.sql` | Propriedades e área por cidade e estado |
 
 Configure `usuarios`, `fazendas` e `medicamentos` como String com **Allow multiple selections**, usando os IDs dos datasets de opções. `All` fornece NULL. Os filtros `array_contains` são aplicados antes da agregação. `data_inicio` e `data_fim` são Date; o fim é inclusivo. `largura_bin_dose` e `largura_bin_kg` são Numeric > 0, com padrões sugeridos 1 e 50. Faixas inválidas retornam um dataset vazio.
 
@@ -98,10 +104,12 @@ Referências: [writes e substituição de schema Delta](https://docs.databricks.
 
 ## Adicionar uma tabela self-service
 
-Copie `notebooks/gold/_template.py.txt` para um novo notebook, implemente o SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Acrescente sua task ao próximo lote disponível do mesmo Job, aguardando todas as tasks do lote anterior, e às dependências de `validar`. O lote atual só pode ter até cinco tasks. Nenhum outro notebook Gold precisa ser alterado. Consulte o [guia Gold](notebooks/gold/README.md).
+Copie `notebooks/gold/_template.py.txt` para um novo notebook, implemente o SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Acrescente a task ao mesmo Job depois de `silver` e dos contextos necessários, e às dependências de `validar`. Se mantiver as barreiras atuais, faça-a aguardar o lote anterior; o tamanho dos lotes pode ser ajustado conforme o compute e as dependências reais. Nenhum outro notebook Gold precisa ser alterado. Consulte o [guia Gold](notebooks/gold/README.md).
 
 ## Contrato relacional de referência
 
 Os scripts de `argos-data-engineering/modulos/` são a referência para tabelas, tipos e regras; o catálogo descritivo pode estar defasado. Em particular, `source_id` é UUID nas tabelas que o script define assim, e `property` usa campos de endereço separados. A Bronze descobre o schema físico no PostgreSQL, enquanto o contrato dos testes espelha o script.
 
 O dataset 13 reproduz a agregação de `10_bi_cte.sql` sobre a Gold, incluindo aplicações inativas como a view PostgreSQL, e aplica filtros antes de agregar. O dataset 01 continua limitado a aplicações ativas; seus resultados não são diretamente equivalentes aos da view. As views PostgreSQL não são ingeridas como tabelas pela Bronze.
+
+Os datasets 16, 17 e 19 descrevem o estado atual, não uma série histórica. O dataset 17 conta lotes distintos após os filtros e não representa saldo de estoque. O dataset 18 remove duplicações causadas pelos vínculos atuais de usuário e propriedade; sessões não comprovam localização histórica. No dataset 19, cidade e estado podem ser usados em mapa com geocodificação do dashboard.

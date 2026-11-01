@@ -103,7 +103,7 @@ class MiniSpark:
             return Frame(self)
         if normalized.startswith('SELECT DISTINCT source_schema'):
             return Frame(self, self.data['argos.bronze._ingestion_state'])
-        # Projeção simples de uma tabela existente.
+
         match = re.fullmatch(r'SELECT .* FROM (argos\.[\w]+\.[\w]+)', normalized, re.S)
         if match and match[1] in self.data:
             return self.table(match[1])

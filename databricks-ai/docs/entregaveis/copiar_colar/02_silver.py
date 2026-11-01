@@ -2,7 +2,7 @@
 # MAGIC %pip install pymongo==4.19.0
 
 # COMMAND ----------
-# Implementação: argos/common.py
+
 """Configuração e operações Delta comuns. Nenhuma credencial é registrada."""
 import hashlib
 import json
@@ -20,7 +20,7 @@ DEFAULTS = {
     'max_documents_per_source': '1000000', 'max_page_bytes': '16777216',
     'max_cycle_depth': '100', 'fail_on_quarantine': 'true',
 }
-# Alias, collection de origem, grupo lógico e modo snapshot dos arquivos.
+
 SOURCE_DEFINITIONS = (
     ('sessions', 'ai_sessions', 'main', 'snapshot'),
     ('interactions', 'ai_interactions', 'main', 'snapshot'),
@@ -59,7 +59,7 @@ def read_config(dbutils):
         except Exception:
             dbutils.widgets.text(key, value)
     config = {k: dbutils.widgets.get(k) for k in DEFAULTS if k != 'environment'}
-    # Identidade interna fixa; não é uma escolha de ambiente.
+
     config['environment'] = 'argos'
     for key in ('catalog','bronze_schema','silver_schema','gold_schema'):
         ident(config[key])
@@ -115,7 +115,7 @@ def sources(config):
     return result
 
 def config_signature(config):
-    # Identidade do lote de arquivos e dos metadados lógicos da origem.
+
     identity = dict(sources=sources(config), mode='jsonl', path=config['jsonl_path'])
     return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
 
@@ -131,7 +131,7 @@ def ensure_schemas(spark, config):
 
 def assert_delta(spark, target):
     if spark.catalog.tableExists(target):
-        # DESCRIBE DETAIL falha para view; nunca substituir view ou formato diferente.
+
         if spark.sql('DESCRIBE DETAIL '+target).first()['format'].lower() != 'delta':
             raise ValueError('Destino não é Delta: '+target)
 
@@ -152,7 +152,7 @@ def assert_unique(frame, keys, label):
         raise ValueError('PK nula/duplicada: '+label)
 
 # COMMAND ----------
-# Implementação: argos/schemas.py
+
 """Descritores explícitos: produzem DDL Spark e validação Python idênticos."""
 def obj(**fields):
     return fields
@@ -236,7 +236,7 @@ def ddl(spec):
     return spec
 
 def frame_schema(spark, spec):
-    # Public API compatível com Spark 3/4; não depende de StructType.fromDDL.
+
     return spark.createDataFrame([],','.join('`'+k+'` '+ddl(v) for k,v in spec.items())).schema
 
 BRONZE_DDL='''env STRING, source_alias STRING, source_database STRING, source_collection STRING,
@@ -251,7 +251,7 @@ RUN_DDL='''env STRING, run_id STRING, run_started_at TIMESTAMP, completed_at TIM
  source_signature STRING, source_aliases ARRAY<STRING>, extractor_version STRING'''
 
 # COMMAND ----------
-# Implementação: argos/parsing.py
+
 """Parser BSON independente de Spark; valida sem substituir desconhecido por zero."""
 import json
 import math
@@ -307,7 +307,7 @@ def typed_value(value, spec, path, errors):
             if not isinstance(value,(Decimal,str,int)) or isinstance(value,bool): raise ValueError()
             result=Decimal(value)
             if not result.is_finite(): raise ValueError()
-            # Falhar em vez de arredondar silenciosamente no Spark.
+
             exponent=result.as_tuple().exponent
             if max(0,-exponent)>scale or result.adjusted()+1>precision-scale:
                 raise ValueError()
@@ -466,18 +466,18 @@ def parse_record(alias, raw):
         doc=prepare_document(alias,doc)
         record=typed_value(doc,SCHEMAS[alias],alias,errors)
         validate_record(alias,record,errors)
-        # Hash sem updated_at permite identificar dois terminais semanticamente divergentes.
+
         import hashlib
         semantic=dict(doc); semantic.pop('updated_at',None)
         semantic_hash=hashlib.sha256(json_util.dumps(semantic,json_options=json_util.CANONICAL_JSON_OPTIONS,
             sort_keys=True,separators=(',',':')).encode()).hexdigest()
         return {'record':record,'errors':sorted(set(errors)),'semantic_hash':semantic_hash}
     except Exception:
-        # Só códigos de regra, sem texto que possa conter conteúdo/credenciais.
+
         return {'record':None,'errors':['document:unparseable'],'semantic_hash':None}
 
 # COMMAND ----------
-# Implementação: argos/bronze.py
+
 """Free Edition: snapshots JSONL de Volumes para Bronze Delta."""
 import hashlib
 import json
@@ -519,7 +519,7 @@ def ensure_bronze_table(spark, target):
     assert_delta(spark, target)
     spark.sql('CREATE TABLE IF NOT EXISTS ' + target + ' (' + BRONZE_DDL + ') USING DELTA')
     existing = set(spark.table(target).schema.fieldNames())
-    # Migração aditiva de metadados para tabelas criadas antes do modo JSONL.
+
     for name, kind in (('source_file', 'STRING'), ('source_record', 'BIGINT')):
         if name not in existing:
             spark.sql('ALTER TABLE ' + target + ' ADD COLUMNS (' + name + ' ' + kind + ')')
@@ -616,7 +616,7 @@ def ingest_jsonl(spark, config):
     return run_id
 
 # COMMAND ----------
-# Implementação: argos/staging.py
+
 """Materialização temporária em Delta usando somente APIs Spark Connect."""
 import warnings
 from uuid import uuid4
@@ -648,7 +648,7 @@ class DeltaStage:
         return False
 
 # COMMAND ----------
-# Implementação: argos/silver.py
+
 """Estado corrente, parsing tipado, quarentena e relacionamentos estruturais."""
 
 def committed_bronze(spark, config, alias, run):
@@ -688,7 +688,7 @@ def parse_source(spark, config, alias, raw, run, stage):
     if count_bad and config['fail_on_quarantine']:
         raise ValueError('Quarentena em '+alias+': '+str(count_bad)+' versões. Consulte silver.q_records; nenhuma Gold será publicada.')
     valid=parsed.filter(F.size('p.errors')==0)
-    # Event IDs imutáveis e observações terminais não admitem conteúdo divergente.
+
     if canonical in ('observations','execution_events'):
         terminal=valid.filter(F.col('p.record.status')!='started') if canonical=='observations' else valid
         conflicts=(terminal.groupBy('env','document_id').agg(F.countDistinct('p.semantic_hash').alias('variants'))
@@ -719,7 +719,7 @@ def build_invocations(spark, config):
     assert_unique(z,['env','invocation_id'],'término de invocação')
     a=e.filter("status='started'")
     keys=e.select('env','invocation_id').distinct()
-    # Validar atributos entre início e término antes de coalesce.
+
     paired=a.alias('a').join(z.alias('z'),['env','invocation_id'],'inner')
     mismatch=None
     for field in ('session_id','interaction_id','target','target_name','attempt'):
@@ -747,7 +747,7 @@ def build_membership(spark, config, stage):
     m=spark.table(table(config,'silver','s_messages')).filter("role='user' AND kind='user_input'")
     candidates=m.groupBy('env','interaction_id').agg(F.count('*').alias('message_count'),
         F.first('source_interaction_id').alias('source_interaction_id'),F.first('answered_question_id').alias('answered_question_id'))
-    # first só é usado quando message_count=1; ambíguos nunca são aceitos como link.
+
     links=(i.alias('i').join(candidates.alias('m'),['env','interaction_id'],'left')
        .select('env','interaction_id','i.session_id','i.user_id','i.interaction_kind','i.published_batch_id',
                'm.source_interaction_id','m.answered_question_id','m.message_count'))
@@ -769,7 +769,7 @@ def build_membership(spark, config, stage):
         nxt=joined.select('env','interaction_id','source_interaction_id','published_batch_id','valid_parent_id',
             F.coalesce('root_interaction_id','pr').alias('root_interaction_id'))
         resolved=stage.materialize(nxt)
-    # Qualquer bifurcação contamina a cadeia inteira, inclusive a raiz.
+
     branches=(resolved.filter('valid_parent_id IS NOT NULL').groupBy('env','valid_parent_id').count()
               .filter('count>1').select('env',F.col('valid_parent_id').alias('bid')))
     bad_roots=(resolved.join(branches,(resolved.env==branches.env)&(resolved.interaction_id==branches.bid),'inner')
@@ -785,7 +785,7 @@ def _run_silver(spark, config, stage):
         env STRING, source_alias STRING, document_id STRING, bronze_version_key STRING,
         rule_ids ARRAY<STRING>, detected_at TIMESTAMP, parser_version STRING, published_batch_id STRING
     ) USING DELTA''')
-    # Pré-criar antes das quatro tasks paralelas para evitar corrida de CREATE TABLE.
+
     spark.sql('CREATE TABLE IF NOT EXISTS '+table(config,'gold','_table_publications')+''' (
         env STRING, gold_table STRING, published_batch_id STRING, completed_at TIMESTAMP
     ) USING DELTA''')
@@ -812,7 +812,7 @@ def _run_silver(spark, config, stage):
     obs=observation_frames[0].unionByName(observation_frames[1])
     assert_unique(obs,['env','observation_id'],'observations global API/A2A')
     write_snapshot(spark,obs,table(config,'silver','s_observations'))
-    # Tipos/linhagem permanecem no fato, filhos têm posição explícita.
+
     events=spark.table(table(config,'silver','s_execution_events'))
     assert_unique(events,['env','session_id','interaction_id','event_id'],'execution_events')
     messages=spark.table(table(config,'silver','s_messages'))
@@ -837,14 +837,14 @@ def _run_silver(spark, config, stage):
             'started_at','ended_at','duration_ms','status','published_batch_id'))
     assert_unique(http,['env','correlation_id'],'http_requests')
     write_snapshot(spark,http,table(config,'silver','s_http_requests'))
-    # Publicação Gold usa metadados de e-mail já minimizados na Silver.
+
     reports=spark.table(table(config,'silver','s_email_reports'))
     public=(reports.select('env','report_id','requested_by','published_batch_id',
         F.transform('recipients',lambda x:F.struct(x.recipient_id.alias('recipient_id'))).alias('recipients'),
         F.transform('attachments',lambda x:F.struct(x.filename.alias('filename'),x.content_type.alias('content_type'),
             x.sha256.alias('sha256'),x.size_bytes.alias('size_bytes'))).alias('attachments')))
     write_snapshot(spark,public,table(config,'silver','s_email_report_metadata'))
-    # Órfãos são preservados e sinalizados; relações contraditórias bloqueiam a Gold.
+
     interactions=spark.table(table(config,'silver','s_interactions'))
     sessions=spark.table(table(config,'silver','s_sessions'))
     issues=[]
@@ -867,7 +867,7 @@ def _run_silver(spark, config, stage):
     issue_frame=issues[0]
     for frame in issues[1:]: issue_frame=issue_frame.unionByName(frame)
     write_snapshot(spark,issue_frame,table(config,'silver','s_linkage_issues'))
-    # Carimbo separado garante leitura do lote; não agrega indicadores.
+
     marker=spark.createDataFrame([(config['environment'],run.run_id,utcnow(),VERSION,'ready')],
         'env STRING, published_batch_id STRING, completed_at TIMESTAMP, transform_version STRING, state STRING')
     write_snapshot(spark,marker,table(config,'silver','_publication'))

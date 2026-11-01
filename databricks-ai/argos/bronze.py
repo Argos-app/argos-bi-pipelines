@@ -94,7 +94,7 @@ def ensure_bronze_table(spark, target):
         "CREATE TABLE IF NOT EXISTS " + target + " (" + BRONZE_DDL + ") USING DELTA"
     )
     existing = set(spark.table(target).schema.fieldNames())
-    # Migração aditiva de metadados para tabelas criadas antes do modo JSONL.
+
     for name, kind in (("source_file", "STRING"), ("source_record", "BIGINT")):
         if name not in existing:
             spark.sql(
