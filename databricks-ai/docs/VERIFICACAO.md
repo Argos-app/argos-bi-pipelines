@@ -1,10 +1,7 @@
-# Verificação das pipelines de IA
+# Verificação — Free Edition 1.2.0
 
-Reorganização para o padrão relacional: `argos/`, `dashboards/`, `docs/`, `notebooks/`, `tests/` e `databricks.yml`.
-Imports, ferramentas de geração, caminhos do Job e documentação atualizados. As pipelines relacionais não foram alteradas.
+Projeto exclusivo para Serverless, renomeado para databricks-ai. A Bronze lê somente snapshots JSONL de Volumes. Removidos conexão direta, URI/secrets Mongo, modo de origem selecionável, lookback e force_snapshot. source_database/source_a2a_database são apenas metadados de proveniência.
 
-Testes locais: BSON/Decimal128, fixtures das 15 origens, tipos inválidos, paginação, SQL sem agregações na Gold, schemas, imports e DAG.
-Resultado local: 23 testes aprovados após a reorganização. Os 69 arquivos relacionais verificados mantiveram hashes SHA-256 idênticos.
+Validação local: contratos BSON e 15 origens; SQL, schemas, notebooks e DAG; staging Delta imutável e limpeza em falhas; arquivos vazios/ausentes/inválidos; limites de página e confirmação global. **32 testes locais passaram** após a limpeza e renomeação.
 
-Pendências no ambiente do usuário: conexão MongoDB, rede, credenciais, compute classic dedicado, catálogo e execução Spark/Delta.
-Use `notebooks/05_testes_fixture.py` para testar as transformações com dados sintéticos em schemas isolados no Databricks.
+Não foi executado Spark Connect/Delta em workspace autenticado. Execute o Job com os 12 arquivos no Volume. Os filtros ambiente dos dashboards de IA continuam removidos.

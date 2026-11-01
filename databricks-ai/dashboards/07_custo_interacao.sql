@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -11,8 +11,8 @@
 -- Não limitar spans por started_at: incluir términos tardios da mesma interação.
 -- USD apenas; moedas outras ficam desconhecidas para esta medida. Sem conversão implícita.
 WITH cohort AS (
-  SELECT * FROM ai_bi.gold.g_interactions
-  WHERE env=:ambiente AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
+  SELECT * FROM workspace.gold_ia.g_interactions
+  WHERE created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), cost AS (
   SELECT env,interaction_id,count(*) AS n,
@@ -20,8 +20,8 @@ WITH cohort AS (
          sum(CASE WHEN billing.currency='USD' AND status<>'started' THEN billing.reported_cost END) AS usd,
          count_if(billing.cost_source='configured_rate') AS estimated,
          count_if(attempt_visibility='internal_retries_unknown') AS opaque
-  FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND replayed_result IS NOT TRUE
+  FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND replayed_result IS NOT TRUE
     AND ((operation_kind='model' AND operation_name='model.invoke' AND observation_level='sdk_invocation')
       OR (operation_kind='model' AND operation_name='model.a2a.answer.generate' AND observation_level='transport_attempt')
       OR (operation_kind='embedding' AND operation_name='embedding.a2a.embed' AND observation_level='transport_attempt'))

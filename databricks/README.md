@@ -19,7 +19,7 @@ A Bronze mantém append JDBC; a Silver e a Gold atualizam snapshots com `format(
 | `argos/delta_layers.py` | Criação e gravação batch de tabelas Delta |
 | `argos/common.py`, `bronze.py`, `silver.py`, `gold.py` | Funções e transformações compartilhadas |
 | `databricks.yml` | Bundle do mesmo Job com Bronze, Silver, atividades Gold independentes e validação |
-| `dashboards/*.sql` | 12 datasets SQL de gráficos e filtros |
+| `dashboards/*.sql` | 13 datasets SQL de gráficos e filtros |
 
 
 ## Instalação nova pela interface
@@ -45,7 +45,7 @@ O `databricks.yml` mantém a configuração equivalente como referência. Para c
 
 ## Semântica das camadas
 
-**Bronze:** descobre todas as tabelas físicas do schema PostgreSQL, inclusive tabelas sem timestamps. Com `updated_at`, usa ingestão incremental por timestamp com lookback e anti-join de PK/timestamp/hash. Sem `updated_at`, usa snapshot completo em append para capturar alterações em `alert`, `device`, `daily_access`, `user_property` e outras tabelas mutáveis. Preserva versões na Bronze e registra snapshots vazios em `_ingestion_state`. `_table_manifest` registra as PKs, inclusive compostas.
+**Bronze:** descobre as tabelas físicas do schema PostgreSQL, inclusive tabelas sem timestamps. O script PostgreSQL atual não cria `user_credential`; a Bronze também bloqueia sua ingestão caso essa tabela sensível exista na origem; caso ela já tenha sido ingerida em uma versão anterior, avalie e remova os dados históricos conforme a política de segurança antes de executar novamente. Com `updated_at`, usa ingestão incremental por timestamp com lookback e anti-join de PK/timestamp/hash. Sem `updated_at`, usa snapshot completo em append para capturar alterações em `alert`, `device`, `daily_access`, `user_property` e outras tabelas mutáveis. Preserva versões na Bronze e registra snapshots vazios em `_ingestion_state`. `_table_manifest` registra as PKs, inclusive compostas.
 
 `force_snapshot=true` força uma carga completa para conciliar exclusões físicas e alterações anteriores ao lookback. Depois volte a `false`. `updated_at` deve ser atualizado corretamente pela origem, como previsto pelos triggers do Argos. As leituras JDBC de várias tabelas não constituem uma única transação do PostgreSQL.
 
@@ -76,6 +76,7 @@ Cole cada SQL de `dashboards/` como dataset separado. As agregações ficam ness
 | `10_filtro_usuarios.sql` | Opções do filtro de usuários |
 | `11_filtro_fazendas.sql` | Opções do filtro de fazendas |
 | `12_filtro_medicamentos.sql` | Opções do filtro de medicamentos |
+| `13_aplicacoes_propriedade_dia.sql` | Aplicações e cabeças por propriedade e dia, seguindo a view PostgreSQL |
 
 Configure `usuarios`, `fazendas` e `medicamentos` como String com **Allow multiple selections**, usando os IDs dos datasets de opções. `All` fornece NULL. Os filtros `array_contains` são aplicados antes da agregação. `data_inicio` e `data_fim` são Date; o fim é inclusivo. `largura_bin_dose` e `largura_bin_kg` são Numeric > 0, com padrões sugeridos 1 e 50. Faixas inválidas retornam um dataset vazio.
 
@@ -98,3 +99,9 @@ Referências: [writes e substituição de schema Delta](https://docs.databricks.
 ## Adicionar uma tabela self-service
 
 Copie `notebooks/gold/_template.py.txt` para um novo notebook, implemente o SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Acrescente sua task ao próximo lote disponível do mesmo Job, aguardando todas as tasks do lote anterior, e às dependências de `validar`. O lote atual só pode ter até cinco tasks. Nenhum outro notebook Gold precisa ser alterado. Consulte o [guia Gold](notebooks/gold/README.md).
+
+## Contrato relacional de referência
+
+Os scripts de `argos-data-engineering/modulos/` são a referência para tabelas, tipos e regras; o catálogo descritivo pode estar defasado. Em particular, `source_id` é UUID nas tabelas que o script define assim, e `property` usa campos de endereço separados. A Bronze descobre o schema físico no PostgreSQL, enquanto o contrato dos testes espelha o script.
+
+O dataset 13 reproduz a agregação de `10_bi_cte.sql` sobre a Gold, incluindo aplicações inativas como a view PostgreSQL, e aplica filtros antes de agregar. O dataset 01 continua limitado a aplicações ativas; seus resultados não são diretamente equivalentes aos da view. As views PostgreSQL não são ingeridas como tabelas pela Bronze.

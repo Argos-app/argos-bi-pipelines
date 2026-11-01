@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -11,15 +11,15 @@
 -- Não usa SUM(duration_ms) como tempo de resposta. Relógios apenas do mesmo serviço.
 -- Sem filtro de agente para não transformar decomposição em execução parcial escondida.
 WITH g AS (
-  SELECT * FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND operation_kind='graph'
+  SELECT * FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND operation_kind='graph'
     AND operation_name IN ('graph.execute','graph.resume') AND status<>'started'
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), children AS (
   SELECT g.observation_id AS graph_id, g.env, a.observation_id AS agent_span,
          a.started_at AS s,a.ended_at AS e,a.status
-  FROM g JOIN ai_bi.gold.g_observations a
+  FROM g JOIN workspace.gold_ia.g_observations a
     ON a.env=g.env AND a.parent_observation_id=g.observation_id
    AND a.service=g.service AND a.operation_kind='agent' AND a.execution_mode='real'
 ), valid AS (

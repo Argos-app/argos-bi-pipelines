@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -14,8 +14,8 @@ SELECT service,operation_kind,operation_name,observation_level,agent,
        percentile_approx(duration_ms,0.50,10000) AS p50_ms,
        percentile_approx(duration_ms,0.95,10000) AS p95_ms,
        percentile_approx(duration_ms,0.99,10000) AS p99_ms
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND execution_mode='real' AND status<>'started' AND duration_ms IS NOT NULL
+FROM workspace.gold_ia.g_observations
+WHERE execution_mode='real' AND status<>'started' AND duration_ms IS NOT NULL
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
   AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)

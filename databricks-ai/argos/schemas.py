@@ -87,7 +87,8 @@ def frame_schema(spark, spec):
 BRONZE_DDL='''env STRING, source_alias STRING, source_database STRING, source_collection STRING,
  source_group STRING, document_id STRING, source_updated_at TIMESTAMP, source_version BIGINT,
  raw_json STRING, payload_sha256 STRING, version_key STRING, extracted_at TIMESTAMP,
- ingested_at TIMESTAMP, run_id STRING, run_started_at TIMESTAMP, extractor_version STRING'''
+ ingested_at TIMESTAMP, run_id STRING, run_started_at TIMESTAMP, extractor_version STRING,
+ source_file STRING, source_record BIGINT'''
 STATE_DDL='''env STRING, source_alias STRING, run_id STRING, run_started_at TIMESTAMP,
  completed_at TIMESTAMP, is_snapshot BOOLEAN, watermark TIMESTAMP, documents BIGINT,
  source_signature STRING'''

@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -18,6 +18,6 @@ SELECT service,operation_kind,execution_mode,count(*) AS observacoes,
           AND billing.reported_cost IS NULL) AS sem_custo,
        count_if(attempt_visibility='internal_retries_unknown') AS retries_nao_enumeraveis,
        max(updated_at) AS ultima_atualizacao_origem
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
+FROM workspace.gold_ia.g_observations
+WHERE started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
 GROUP BY service,operation_kind,execution_mode;

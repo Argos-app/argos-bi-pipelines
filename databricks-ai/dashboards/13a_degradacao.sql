@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -13,8 +13,8 @@ SELECT response_kind,count(*) AS interacoes_terminais,
        count_if(interaction_status='degraded') AS degradadas,
        count_if(interaction_status='degraded')*1.0/nullif(count(*),0) AS taxa_degradacao_populacao_filtrada,
        count_if(result_parse_status='invalid') AS resultado_invalido
-FROM ai_bi.gold.g_interactions
-WHERE env=:ambiente AND interaction_status IN ('completed','degraded','failed','interrupted')
+FROM workspace.gold_ia.g_interactions
+WHERE interaction_status IN ('completed','degraded','failed','interrupted')
   AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
   AND (nullif(trim(:motivo),'') IS NULL OR coalesce(array_contains(degradation_reasons,:motivo),false))

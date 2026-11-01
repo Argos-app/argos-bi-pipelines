@@ -136,6 +136,16 @@ class MedallionTests(unittest.TestCase):
         rows = self.db.execute("SELECT sf_property_id FROM argos.self_service.app_user WHERE id='U1' ORDER BY sf_property_id").fetchall()
         self.assertEqual(rows, [('P1',), ('P3',)])
 
+    def test_view_equivalent_includes_inactive_and_filters_before_aggregation(self):
+        self.seed()
+        self.insert('application', id='AP3', lot_id='L1', user_id='U2',
+                    medicine_batch_id='MB1', application_date='2026-10-01',
+                    head_count_applied=5, active=False)
+        all_rows = self.dashboard('13_aplicacoes_propriedade_dia.sql')
+        self.assertEqual(all_rows, [('P1', 20261001, 2, 15), ('P2', 20261001, 1, 10)])
+        filtered = self.dashboard('13_aplicacoes_propriedade_dia.sql', usuarios=['U2'], fazendas=['P1'])
+        self.assertEqual(filtered, [('P1', 20261001, 1, 5)])
+
     def test_all_dashboard_queries_bind_and_execute(self):
         self.seed()
         for path in sorted((ROOT / 'dashboards').glob('*.sql')):

@@ -4,21 +4,19 @@
 # COMMAND ----------
 import sys
 from pathlib import Path
-for candidate in (Path.cwd(), *Path.cwd().parents):
-    if (candidate / 'argos').is_dir():
-        sys.path.insert(0,str(candidate))
-        break
-else:
-    raise RuntimeError('Preserve argos/ e notebooks/ na mesma raiz OU use copiar_colar/.')
+try:
+    project_root = dbutils.widgets.get('project_root')
+except Exception:
+    dbutils.widgets.text('project_root', '/Workspace/Shared/argos-ai-bi')
+    project_root = dbutils.widgets.get('project_root')
+root = Path(project_root)
+if not root.is_absolute() or not (root / 'argos').is_dir():
+    raise RuntimeError('Configure project_root com a raiz absoluta do projeto no Workspace ou use os notebooks autocontidos.')
+sys.path.insert(0, str(root))
 from argos.common import read_config
 from argos.bronze import ingest
 
 # COMMAND ----------
-# Conexão: preencha os widgets de Secret Scope OU esta URI.
-# Não use mongodb://localhost:27017: localhost aqui é o compute do Databricks.
-# Nunca publique o notebook depois de preencher credenciais diretamente.
-MONGO_URI = 'PREENCHA_A_URI_MONGODB_OU_USE_SECRET_SCOPE'
-# Vazio reutiliza a URI principal; preencha só se o A2A usa outro cluster.
-MONGO_A2A_URI = ''
+# Snapshot JSONL completo em jsonl_path (/Volumes).
 config=read_config(dbutils)
-ingest(spark,dbutils,config,MONGO_URI,MONGO_A2A_URI)
+ingest(spark,config)

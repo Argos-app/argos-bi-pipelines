@@ -10,30 +10,28 @@ HEADER='# Databricks notebook source\n'
 SEP='\n# COMMAND ----------\n'
 BOOT='''import sys
 from pathlib import Path
-for candidate in (Path.cwd(), *Path.cwd().parents):
-    if (candidate / 'argos').is_dir():
-        sys.path.insert(0,str(candidate))
-        break
-else:
-    raise RuntimeError('Preserve argos/ e notebooks/ na mesma raiz OU use copiar_colar/.')
+try:
+    project_root = dbutils.widgets.get('project_root')
+except Exception:
+    dbutils.widgets.text('project_root', '/Workspace/Shared/argos-ai-bi')
+    project_root = dbutils.widgets.get('project_root')
+root = Path(project_root)
+if not root.is_absolute() or not (root / 'argos').is_dir():
+    raise RuntimeError('Configure project_root com a raiz absoluta do projeto no Workspace ou use os notebooks autocontidos.')
+sys.path.insert(0, str(root))
 from argos.common import read_config
 '''
 PIP='# MAGIC %pip install pymongo==4.19.0\n'
-BRONZE_ENTRY='''# Conexão: preencha os widgets de Secret Scope OU esta URI.
-# Não use mongodb://localhost:27017: localhost aqui é o compute do Databricks.
-# Nunca publique o notebook depois de preencher credenciais diretamente.
-MONGO_URI = 'PREENCHA_A_URI_MONGODB_OU_USE_SECRET_SCOPE'
-# Vazio reutiliza a URI principal; preencha só se o A2A usa outro cluster.
-MONGO_A2A_URI = ''
+BRONZE_ENTRY='''# Snapshot JSONL completo em jsonl_path (/Volumes).
 config=read_config(dbutils)
-ingest(spark,dbutils,config,MONGO_URI,MONGO_A2A_URI)
+ingest(spark,config)
 '''
 
 def inline(modules):
     blocks=[]
     for module in modules:
         text=(ROOT/'argos'/f'{module}.py').read_text(encoding='utf-8')
-        text=re.sub(r'^from \.[^\n]+\n','',text,flags=re.MULTILINE)
+        text=re.sub(r'^from \.[^\n]*\(\s*\n(?:[^\n]*\n)*?\s*\)\s*\n|^from \.[^\n]+\n','',text,flags=re.MULTILINE)
         blocks.append('# Implementação: argos/'+module+'.py\n'+text)
     return SEP.join(blocks)
 
@@ -47,7 +45,7 @@ write_notebook('01_bronze.py',PIP+SEP+BOOT+'from argos.bronze import ingest\n'+S
     PIP+SEP+inline(('common','schemas','bronze'))+SEP+BRONZE_ENTRY)
 entry='config=read_config(dbutils)\nrun_silver(spark,config)\n'
 write_notebook('02_silver.py',PIP+SEP+BOOT+'from argos.delta_layers import run_silver\n'+SEP+entry,
-    PIP+SEP+inline(('common','schemas','parsing','bronze','silver'))+SEP+entry)
+    PIP+SEP+inline(('common','schemas','parsing','bronze','staging','silver'))+SEP+entry)
 for name in NAMES:
     entry=f"config=read_config(dbutils)\nrun_gold(spark,config,'{name}')\n"
     write_notebook(f'gold/{name}.py',BOOT+'from argos.delta_layers import run_gold\n'+SEP+entry,
@@ -55,10 +53,6 @@ for name in NAMES:
 entry='config=read_config(dbutils)\nvalidate_pipeline(spark,config)\n'
 write_notebook('04_validacao.py',BOOT+'from argos.delta_layers import validate_pipeline\n'+SEP+entry,
     inline(('common','gold'))+SEP+entry)
-entry='config=read_config(dbutils)\nfixture_config=run_fixture(spark,config)\n'
-write_notebook('05_testes_fixture.py',PIP+SEP+BOOT+'from argos.fixture import run_fixture\n'+SEP+entry,
-    PIP+SEP+inline(('common','schemas','parsing','bronze','silver','gold','fixture'))+SEP+entry)
-
 # .ipynb preserva células %pip ao importar/abrir, além dos .py de origem Databricks.
 for folder in ('notebooks','docs/entregaveis/copiar_colar'):
     for path in (ROOT/folder).rglob('*.py'):
@@ -76,16 +70,13 @@ for folder in ('notebooks','docs/entregaveis/copiar_colar'):
         output.with_suffix('.ipynb').write_text(json.dumps(notebook,ensure_ascii=False,indent=1)+'\n',encoding='utf-8')
 
 # Arquivo Jobs API pode ser importado sem CLI; bundle usa o mesmo DAG.
-parameters=[{'name':k,'default':v} for k,v in {
-    'catalog':'ai_bi','bronze_schema':'bronze','silver_schema':'silver','gold_schema':'gold',
-    'environment':'local','mongo_database':'argos_ai','mongo_secret_scope':'','mongo_secret_key':'',
-    'mongo_a2a_database':'','mongo_a2a_secret_scope':'','mongo_a2a_secret_key':'',
-    'collections_json':'{}','force_snapshot':'false','lookback_minutes':'5','page_size':'500',
-    'max_documents_per_source':'1000000','max_page_bytes':'16777216','max_cycle_depth':'100','fail_on_quarantine':'true',
-}.items()]
+import sys
+sys.path.insert(0, str(ROOT))
+from argos.common import DEFAULTS
+parameters=[{'name':k,'default':v} for k,v in DEFAULTS.items() if k != 'environment']
 tasks=[]
 def task(key,path,dependencies=()):
-    item={'task_key':key,'existing_cluster_id':'PREENCHA_CLUSTER_ID',
+    item={'task_key':key,
           'notebook_task':{'notebook_path':'/Workspace/Shared/argos-ai-bi/notebooks/'+path}}
     if dependencies: item['depends_on']=[{'task_key':x} for x in dependencies]
     tasks.append(item)
@@ -93,25 +84,22 @@ task('bronze','01_bronze',())
 task('silver','02_silver',('bronze',))
 for name in NAMES: task(name,'gold/'+name,('silver',))
 task('validar','04_validacao',NAMES)
-job={'name':'argos-ai-bronze-silver-gold','max_concurrent_runs':1,'parameters':parameters,'tasks':tasks}
+job={'name':'argos-ai-bi','max_concurrent_runs':1,'parameters':parameters,'tasks':tasks}
 (ROOT/'docs/job-settings.json').write_text(json.dumps(job,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 yaml='''bundle:
   name: argos-ai-bi
-variables:
-  cluster_id:
-    description: ID de um compute CLASSIC dedicado, Databricks Runtime 16.4 LTS ou superior
 resources:
   jobs:
     argos_ai_medallion:
-      name: argos-ai-bronze-silver-gold
+      name: argos-ai-bi
       max_concurrent_runs: 1
       parameters:
 '''
 for p in parameters:
-    yaml+='        - name: '+p['name']+'\n          default: '+json.dumps(p['default'])+'\n'
+    yaml+='        - name: '+p['name']+'\n          default: '+json.dumps('${workspace.file_path}' if p['name']=='project_root' else p['default'])+'\n'
 yaml+='      tasks:\n'
 for item in tasks:
-    yaml+='        - task_key: '+item['task_key']+'\n          existing_cluster_id: ${var.cluster_id}\n'
+    yaml+='        - task_key: '+item['task_key']+'\n'
     if 'depends_on' in item:
         yaml+='          depends_on:\n'+''.join('            - task_key: '+d['task_key']+'\n' for d in item['depends_on'])
     path=item['notebook_task']['notebook_path'].split('/notebooks/')[1]+'.py'
@@ -125,9 +113,13 @@ dashboard.parent.mkdir(exist_ok=True)
 names=['01_uso_semanal','02_tokens_custos','03_latencia_etapas','04_latencia_interagentes',
        '05_indice_erros','06_throughput_agentes','07_custo_interacao','08_custo_resolucao',
        '08b_cobertura_ciclos','09_projecao_custos','10_confiabilidade_http','11_uso_ferramentas',
-       '12_recorrencia_falhas','13a_degradacao','13b_qualidade_juiz','14_email','15_cobertura_observabilidade']
+       '12_recorrencia_falhas','13a_degradacao','13b_qualidade_juiz','14_email','15_cobertura_observabilidade',
+       '16_roi','17_distribuicao_latencia']
 parts=re.split(r'(?=^-- Q\d+[ab]?\.)',dashboard.read_text(encoding='utf-8'),flags=re.MULTILINE)
 assert len(parts)==len(names)+1
 for name,block in zip(names,parts[1:]):
-    (ROOT/'dashboards'/f'{name}.sql').write_text(parts[0]+block,encoding='utf-8')
-print('8 notebooks modulares + 8 autocontidos (.py e .ipynb); Job JSON/YAML e SQL atualizados.')
+    path = ROOT/'dashboards'/f'{name}.sql'
+    content = parts[0]+block
+    if not path.exists() or path.read_text(encoding='utf-8').rstrip() != content.rstrip():
+        path.write_text(content,encoding='utf-8')
+print('7 notebooks modulares + 7 autocontidos (.py e .ipynb); Job JSON/YAML e SQL atualizados.')

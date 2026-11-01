@@ -10,11 +10,11 @@ from decimal import Decimal
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from argos.bronze import canonical_json,page_query,bronze_record
+from argos.bronze import canonical_json,bronze_record
 from argos.common import DEFAULTS,sources,config_signature
 from argos.parsing import parse_record
 from argos.schemas import SCHEMAS,ddl
-from argos.fixture import fixture_documents
+from sample_records import fixture_documents
 from argos.gold import gold_queries,GOLD_KEYS
 
 class PipelineTests(unittest.TestCase):
@@ -105,7 +105,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(parsed['record']['answered_question_id'],self.ids['question'])
 
     def test_truncated_judge_not_rejected_or_approved(self):
-        doc=copy.deepcopy(self.docs['execution_events'][1]); doc['sanitized_output']='{"decision":"approved"...'
+        doc=copy.deepcopy(self.docs['execution_events'][0]); doc['sanitized_output']='{"decision":"approved"...'
         parsed=self.parse('execution_events',doc)
         self.assertEqual(parsed['errors'],[])
         self.assertEqual(parsed['record']['judge_parse_status'],'invalid')
@@ -124,12 +124,12 @@ class PipelineTests(unittest.TestCase):
         for key in ('interaction_id','session_id','correlation_id','parent_observation_id'): doc.pop(key,None)
         self.assertEqual(self.parse('observations',doc)['errors'],[])
 
-    def test_page_cursor_uses_updated_at_and_id(self):
-        now=self.docs['observations'][0]['started_at']
-        q=page_query(False,now,now-timedelta(minutes=5),(now,self.ids['graph']))
-        self.assertIn('updated_at',q['$and'][0])
-        self.assertEqual(q['$and'][2]['$or'][1]['_id']['$gt'],self.ids['graph'])
-        self.assertEqual(page_query(True,None,None,(now,'id')),{'$and':[{'_id':{'$gt':'id'}}]})
+    def test_snapshot_sources_and_bronze_lineage(self):
+        self.assertTrue(all(source['mode']=='snapshot' for source in sources(DEFAULTS)))
+        source=sources(DEFAULTS)[0]
+        row=bronze_record(self.docs['sessions'][0],source,DEFAULTS,'run',self.docs['sessions'][0]['created_at'], '/Volumes/c/s/v/sessions.jsonl', 3)
+        self.assertEqual(row['source_record'],3)
+        self.assertTrue(row['source_file'].endswith('sessions.jsonl'))
 
     def test_invalid_collection_config_fails(self):
         config=dict(DEFAULTS,collections_json='{"unknown":{"enabled":false}}')
@@ -142,7 +142,7 @@ class PipelineTests(unittest.TestCase):
         self.assertNotEqual(config_signature(a),config_signature(b))
 
     def test_structure_matches_relational_convention(self):
-        self.assertEqual(DEFAULTS['mongo_database'],'argos_ai')
+        self.assertEqual(DEFAULTS['source_database'],'argos_ai')
         self.assertTrue((ROOT/'argos/delta_layers.py').is_file())
         self.assertTrue((ROOT/'docs/CONFIGURACAO_DATABRICKS.md').is_file())
         self.assertTrue((ROOT/'docs/VERIFICACAO.md').is_file())
@@ -166,7 +166,7 @@ class PipelineTests(unittest.TestCase):
             for cell in notebook['cells']:
                 code=''.join(cell['source'])
                 if not code.lstrip().startswith('%'): ast.parse(code)
-            if path.name in ('01_bronze.ipynb','02_silver.ipynb','05_testes_fixture.ipynb'):
+            if path.name in ('01_bronze.ipynb','02_silver.ipynb'):
                 self.assertTrue(''.join(notebook['cells'][0]['source']).startswith('%pip'))
 
     def test_gold_only_selects_and_joins_and_dashboards_only_select(self):
@@ -180,10 +180,10 @@ class PipelineTests(unittest.TestCase):
             self.assertNotIn('explode',statement.lower())
         q=(ROOT/'docs/queries-dashboard.sql').read_text(encoding='utf-8')
         statements=sqlglot.parse(q,read='databricks')
-        self.assertEqual(len(statements),17)
+        self.assertEqual(len(statements),19)
         self.assertTrue(all(isinstance(s,exp.Select) for s in statements))
         self.assertIn('array_contains',q)
-        self.assertEqual(len(list((ROOT/'dashboards').glob('*.sql'))),17)
+        self.assertEqual(len(list((ROOT/'dashboards').glob('*.sql'))),19)
         for spec in SCHEMAS.values():
             # Também validar sintaxe dos schemas aninhados no dialeto Databricks.
             sqlglot.parse_one('CREATE TABLE t (r '+ddl(spec)+') USING DELTA',read='databricks')

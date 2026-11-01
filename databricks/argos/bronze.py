@@ -50,13 +50,16 @@ def ingest(spark, config):
         FROM information_schema.tables t
         JOIN information_schema.columns c USING (table_catalog, table_schema, table_name)
         WHERE t.table_type = 'BASE TABLE' AND t.table_schema = '{source_schema}'
+          AND t.table_name <> 'user_credential'
         ORDER BY t.table_name, c.ordinal_position"""
     ).collect()
     tables = defaultdict(list)
     source_types = defaultdict(dict)
     for row in columns:
         tables[(row.table_schema, row.table_name)].append(row.column_name)
-        source_types[(row.table_schema, row.table_name)][row.column_name] = row.data_type
+        source_types[(row.table_schema, row.table_name)][
+            row.column_name
+        ] = row.data_type
     if not tables:
         raise ValueError("Nenhuma tabela encontrada no schema de origem")
     if spark.catalog.tableExists(manifest):
@@ -125,7 +128,9 @@ def ingest(spark, config):
             formatted = cutoff.strftime("%Y-%m-%d %H:%M:%S.%f")
             where = f"WHERE {event} >= TIMESTAMP '{formatted}' OR {event} IS NULL"
         projection = pg_projection(source_columns, source_types[(origin_schema, name)])
-        frame = query(f"SELECT {projection}, {event} AS _change_at FROM {origin} {where}")
+        frame = query(
+            f"SELECT {projection}, {event} AS _change_at FROM {origin} {where}"
+        )
         # Conteúdo faz parte da identidade da versão: timestamp igual pode ter UPDATE.
         frame = frame.withColumn(
             "_row_hash",

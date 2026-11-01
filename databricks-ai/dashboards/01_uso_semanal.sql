@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -10,8 +10,8 @@
 -- Q01. Uso semanal e WAU (semanas parciais visíveis pelas datas dos parâmetros).
 WITH b AS (
   SELECT *, date_trunc('week',from_utc_timestamp(created_at,'America/Sao_Paulo')) AS semana
-  FROM ai_bi.gold.g_interactions
-  WHERE env=:ambiente AND created_at>=CAST(:inicio AS TIMESTAMP)
+  FROM workspace.gold_ia.g_interactions
+  WHERE created_at>=CAST(:inicio AS TIMESTAMP)
     AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL
       OR coalesce(array_contains(farm_ids,:fazenda),false))

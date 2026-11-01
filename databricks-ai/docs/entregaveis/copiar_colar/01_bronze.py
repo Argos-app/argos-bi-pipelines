@@ -9,35 +9,34 @@ import json
 import re
 from datetime import datetime, timezone
 
-VERSION = '1.0.0'
+VERSION = '1.2.0'
 DEFAULTS = {
-    'catalog': 'ai_bi', 'bronze_schema': 'bronze', 'silver_schema': 'silver',
-    'gold_schema': 'gold', 'environment': 'local', 'mongo_database': 'argos_ai',
-    'mongo_secret_scope': '', 'mongo_secret_key': '',
-    'mongo_a2a_secret_scope': '', 'mongo_a2a_secret_key': '',
-    'mongo_a2a_database': '', 'collections_json': '{}',
-    'page_size': '500', 'lookback_minutes': '5', 'force_snapshot': 'false',
+    'catalog': 'workspace', 'bronze_schema': 'bronze_ia', 'silver_schema': 'silver_ia',
+    'gold_schema': 'gold_ia', 'environment': 'argos', 'source_database': 'argos_ai',
+    'source_a2a_database': '', 'collections_json': '{}',
+    'jsonl_path': '/Volumes/workspace/bronze_ia/landing/atual',
+    'project_root': '/Workspace/Shared/argos-ai-bi',
+    'page_size': '500',
     'max_documents_per_source': '1000000', 'max_page_bytes': '16777216',
     'max_cycle_depth': '100', 'fail_on_quarantine': 'true',
 }
-# Alias, collection padrão, grupo de conexão, modo seguro.
-# Sem updated_at confiável: snapshot, inclusive mensagens/eventos com TTL.
+# Alias, collection de origem, grupo lógico e modo snapshot dos arquivos.
 SOURCE_DEFINITIONS = (
-    ('sessions', 'ai_sessions', 'main', 'incremental'),
-    ('interactions', 'ai_interactions', 'main', 'incremental'),
+    ('sessions', 'ai_sessions', 'main', 'snapshot'),
+    ('interactions', 'ai_interactions', 'main', 'snapshot'),
     ('messages', 'ai_messages', 'main', 'snapshot'),
     ('execution_events', 'ai_execution_events', 'main', 'snapshot'),
-    ('observations', 'ai_observations', 'main', 'incremental'),
-    ('a2a_observations', 'ai_a2a_observations', 'a2a', 'incremental'),
-    ('session_summaries', 'ai_session_summaries', 'main', 'incremental'),
-    ('user_memory', 'ai_user_memory', 'main', 'incremental'),
+    ('observations', 'ai_observations', 'main', 'snapshot'),
+    ('a2a_observations', 'ai_a2a_observations', 'a2a', 'snapshot'),
+    ('session_summaries', 'ai_session_summaries', 'main', 'snapshot'),
+    ('user_memory', 'ai_user_memory', 'main', 'snapshot'),
     ('report_artifacts', 'ai_report_artifacts', 'main', 'snapshot'),
-    ('email_preparations', 'ai_email_preparations', 'main', 'snapshot'),
-    ('pending_recipient_resolutions', 'ai_pending_recipient_resolutions', 'main', 'snapshot'),
-    ('email_authorizations', 'ai_email_send_authorizations', 'main', 'snapshot'),
-    ('email_operation_references', 'ai_email_operation_references', 'main', 'snapshot'),
+    ('email_preparations', 'ai_email_workflows', 'main', 'snapshot'),
+    ('pending_recipient_resolutions', 'ai_email_workflows', 'main', 'snapshot'),
+    ('email_authorizations', 'ai_email_workflows', 'main', 'snapshot'),
+    ('email_operation_references', 'ai_email_workflows', 'main', 'snapshot'),
     ('email_reports', 'ai_email_prepared_reports', 'main', 'snapshot'),
-    ('email_dispatches', 'ai_email_dispatches', 'main', 'incremental'),
+    ('email_dispatches', 'ai_email_dispatches', 'main', 'snapshot'),
 )
 
 def utcnow():
@@ -53,26 +52,38 @@ def table(config, layer, name):
 
 def read_config(dbutils):
     for key, value in DEFAULTS.items():
+        if key == 'environment':
+            continue
         try:
             dbutils.widgets.get(key)
         except Exception:
             dbutils.widgets.text(key, value)
-    config = {k: dbutils.widgets.get(k) for k in DEFAULTS}
+    config = {k: dbutils.widgets.get(k) for k in DEFAULTS if k != 'environment'}
+    # Identidade interna fixa; não é uma escolha de ambiente.
+    config['environment'] = 'argos'
     for key in ('catalog','bronze_schema','silver_schema','gold_schema'):
         ident(config[key])
-    if not config['environment'].strip() or not config['mongo_database'].strip():
-        raise ValueError('environment e mongo_database são obrigatórios.')
-    for key in ('page_size','lookback_minutes','max_documents_per_source','max_page_bytes','max_cycle_depth'):
+    if not config['source_database'].strip():
+        raise ValueError('source_database é obrigatório.')
+    validate_jsonl_path(config['jsonl_path'])
+    for key in ('page_size','max_documents_per_source','max_page_bytes','max_cycle_depth'):
         config[key] = int(config[key])
-    if not 1 <= config['page_size'] <= 1000 or config['lookback_minutes'] < 0:
-        raise ValueError('page_size deve ser 1..1000; lookback_minutes >= 0.')
+    if not 1 <= config['page_size'] <= 1000:
+        raise ValueError('page_size deve ser 1..1000.')
     if any(config[k] < 1 for k in ('max_documents_per_source','max_page_bytes','max_cycle_depth')):
         raise ValueError('Limites devem ser positivos.')
-    for key in ('force_snapshot','fail_on_quarantine'):
+    for key in ('fail_on_quarantine',):
         if config[key].lower() not in ('true','false'):
             raise ValueError(key + ' deve ser true ou false.')
         config[key] = config[key].lower() == 'true'
     return config
+
+def validate_jsonl_path(value):
+    from pathlib import PurePosixPath
+    path = PurePosixPath(value)
+    if not value.startswith('/Volumes/') or len(path.parts) < 5 or '..' in path.parts:
+        raise ValueError('jsonl_path deve ser um caminho absoluto /Volumes/catalog/schema/volume[/pasta].')
+    return str(path)
 
 def sources(config):
     overrides = json.loads(config['collections_json'])
@@ -91,12 +102,12 @@ def sources(config):
         collection=override.get('collection',collection)
         if not isinstance(collection,str) or not collection or '\x00' in collection:
             raise ValueError('Nome de collection inválido.')
-        database=(config['mongo_a2a_database'] or config['mongo_database']) if group=='a2a' else config['mongo_database']
+        database=(config['source_a2a_database'] or config['source_database']) if group=='a2a' else config['source_database']
         result.append(dict(alias=alias,collection=collection,group=group,mode=mode,database=database))
     seen=set()
     for item in result:
         key=(item['group'],item['database'],item['collection'])
-        if key in seen:
+        if key in seen and item['collection'] != 'ai_email_workflows':
             raise ValueError('Collections duplicadas no mesmo grupo de conexão.')
         seen.add(key)
     if not result:
@@ -104,8 +115,9 @@ def sources(config):
     return result
 
 def config_signature(config):
-    # Sem URI/senha, mas identidade lógica deve mudar se trocar de cluster.
-    return hashlib.sha256(json.dumps(sources(config),sort_keys=True).encode()).hexdigest()
+    # Identidade do lote de arquivos e dos metadados lógicos da origem.
+    identity = dict(sources=sources(config), mode='jsonl', path=config['jsonl_path'])
+    return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
 
 def ensure_schemas(spark, config):
     spark.conf.set('spark.sql.session.timeZone','UTC')
@@ -230,7 +242,8 @@ def frame_schema(spark, spec):
 BRONZE_DDL='''env STRING, source_alias STRING, source_database STRING, source_collection STRING,
  source_group STRING, document_id STRING, source_updated_at TIMESTAMP, source_version BIGINT,
  raw_json STRING, payload_sha256 STRING, version_key STRING, extracted_at TIMESTAMP,
- ingested_at TIMESTAMP, run_id STRING, run_started_at TIMESTAMP, extractor_version STRING'''
+ ingested_at TIMESTAMP, run_id STRING, run_started_at TIMESTAMP, extractor_version STRING,
+ source_file STRING, source_record BIGINT'''
 STATE_DDL='''env STRING, source_alias STRING, run_id STRING, run_started_at TIMESTAMP,
  completed_at TIMESTAMP, is_snapshot BOOLEAN, watermark TIMESTAMP, documents BIGINT,
  source_signature STRING'''
@@ -239,10 +252,9 @@ RUN_DDL='''env STRING, run_id STRING, run_started_at TIMESTAMP, completed_at TIM
 
 # COMMAND ----------
 # Implementação: argos/bronze.py
-"""Extração Mongo somente find; snapshots/versionamento em Delta."""
+"""Free Edition: snapshots JSONL de Volumes para Bronze Delta."""
 import hashlib
 import json
-from datetime import timedelta
 from uuid import uuid4
 
 def canonical_json(value):
@@ -250,21 +262,7 @@ def canonical_json(value):
     return json_util.dumps(value,json_options=json_util.CANONICAL_JSON_OPTIONS,
                            sort_keys=True,ensure_ascii=False,separators=(',',':'))
 
-def page_query(snapshot, watermark, lower, after):
-    clauses=[]
-    if not snapshot:
-        clauses.append({'updated_at':{'$lte':watermark}})
-        if lower is not None:
-            clauses.append({'updated_at':{'$gte':lower}})
-    if after is not None:
-        if snapshot:
-            clauses.append({'_id':{'$gt':after[1]}})
-        else:
-            clauses.append({'$or':[{'updated_at':{'$gt':after[0]}},
-                {'updated_at':after[0],'_id':{'$gt':after[1]}}]})
-    return {'$and':clauses} if clauses else {}
-
-def bronze_record(doc, source, config, run_id, started):
+def bronze_record(doc, source, config, run_id, started, source_file=None, source_record=None):
     if '_id' not in doc:
         raise ValueError('Documento Mongo sem _id.')
     raw=canonical_json(doc)
@@ -278,7 +276,7 @@ def bronze_record(doc, source, config, run_id, started):
         source_collection=source['collection'],source_group=source['group'],document_id=document_id,
         source_updated_at=updated,source_version=version if isinstance(version,int) and not isinstance(version,bool) else None,
         raw_json=raw,payload_sha256=payload_hash,version_key=hashlib.sha256(key.encode()).hexdigest(),
-        extracted_at=utcnow(),ingested_at=utcnow(),run_id=run_id,run_started_at=started,extractor_version=VERSION)
+        extracted_at=utcnow(),ingested_at=utcnow(),run_id=run_id,run_started_at=started,extractor_version=VERSION,source_file=source_file,source_record=source_record)
 
 def latest_run(spark, config):
     from pyspark.sql import functions as F
@@ -288,124 +286,110 @@ def latest_run(spark, config):
     return (spark.table(target).filter(F.col('env')==config['environment'])
             .orderBy(F.col('run_started_at').desc(),F.col('run_id').desc()).first())
 
-def connection_uri(dbutils, config, group, inline_uri='', inline_a2a_uri=''):
-    if group=='a2a' and (config['mongo_a2a_secret_scope'] or inline_a2a_uri):
-        scope,key=config['mongo_a2a_secret_scope'],config['mongo_a2a_secret_key']
-        uri=dbutils.secrets.get(scope,key) if scope and key else inline_a2a_uri
-    else:
-        scope,key=config['mongo_secret_scope'],config['mongo_secret_key']
-        uri=dbutils.secrets.get(scope,key) if scope and key else inline_uri
-    if not isinstance(uri,str) or not uri.startswith(('mongodb://','mongodb+srv://')) or 'PREENCHA' in uri or '<' in uri:
-        raise ValueError('Configure mongo_secret_scope/key OU a URI na célula da Bronze. URI não será exibida.')
-    return uri
+def ingest(spark, config):
+    return ingest_jsonl(spark, config)
 
-def ingest(spark, dbutils, config, inline_uri='', inline_a2a_uri=''):
-    from pymongo import MongoClient, ASCENDING, DESCENDING
-    from pyspark.sql import functions as F
-    from delta.tables import DeltaTable
-    ensure_schemas(spark,config)
-    active=sources(config)
-    signature=config_signature(config)
-    previous=latest_run(spark,config)
-    # Trocar database/collection exige snapshot. A identidade do cluster é o environment.
-    changed=previous is not None and previous.source_signature!=signature
-    run_id=str(uuid4()); started=utcnow()
-    for name,ddl_text in (('_runs',RUN_DDL),('_ingestion_state',STATE_DDL)):
-        target=table(config,'bronze',name)
-        assert_delta(spark,target)
-        spark.sql('CREATE TABLE IF NOT EXISTS '+target+' ('+ddl_text+') USING DELTA')
-    clients={}
+def ensure_bronze_table(spark, target):
+    assert_delta(spark, target)
+    spark.sql('CREATE TABLE IF NOT EXISTS ' + target + ' (' + BRONZE_DDL + ') USING DELTA')
+    existing = set(spark.table(target).schema.fieldNames())
+    # Migração aditiva de metadados para tabelas criadas antes do modo JSONL.
+    for name, kind in (('source_file', 'STRING'), ('source_record', 'BIGINT')):
+        if name not in existing:
+            spark.sql('ALTER TABLE ' + target + ' ADD COLUMNS (' + name + ' ' + kind + ')')
+
+def merge_page(spark, target, rows):
+    if not rows:
+        return
+    view = '_argos_page_' + uuid4().hex
+    spark.createDataFrame(rows, BRONZE_DDL).dropDuplicates(['version_key']).createOrReplaceTempView(view)
     try:
-        for source in active:
-            alias=source['alias']
-            # Uma única tabela de Bronze por alias, inclusive A2A (sem colisão entre origens).
-            target=table(config,'bronze','b_'+alias)
-            assert_delta(spark,target)
-            spark.sql('CREATE TABLE IF NOT EXISTS '+target+' ('+BRONZE_DDL+') USING DELTA')
-            if source['group'] not in clients:
-                uri=connection_uri(dbutils,config,source['group'],inline_uri,inline_a2a_uri)
-                clients[source['group']]=MongoClient(uri,tz_aware=True,
-                    serverSelectionTimeoutMS=15000,connectTimeoutMS=15000,socketTimeoutMS=60000,
-                    appname='argos-databricks-bi',retryReads=True)
-                # find é o teste efetivo de autorização; não exige listCollections/admin.
-            collection=clients[source['group']][source['database']][source['collection']]
-            checkpoint=None
-            if previous and not changed:
-                committed=(spark.table(table(config,'bronze','_runs'))
-                    .filter((F.col('env')==config['environment']) & (F.col('run_started_at')<=previous.run_started_at))
-                    .select('env','run_id'))
-                checkpoint=(spark.table(table(config,'bronze','_ingestion_state'))
-                    .join(committed,['env','run_id'],'inner')
-                    .filter((F.col('env')==config['environment']) & (F.col('source_alias')==alias))
-                    .orderBy(F.col('run_started_at').desc()).first())
-            snapshot=config['force_snapshot'] or changed or checkpoint is None or source['mode']=='snapshot'
-            high=None
-            if not snapshot:
-                # Qualquer documento sem BSON Date força reconciliação completa, não é ignorado.
-                malformed=collection.find_one({'updated_at':{'$not':{'$type':'date'}}},{'_id':1})
-                newest=collection.find_one({},projection={'updated_at':1},sort=[('updated_at',DESCENDING),('_id',DESCENDING)])
-                high=newest.get('updated_at') if newest else None
-                if malformed is not None or high is None:
-                    snapshot=True
-            lower=None
-            if not snapshot and checkpoint.watermark is not None:
-                lower=checkpoint.watermark-timedelta(minutes=config['lookback_minutes'])
-            after=None; documents=0; page_index=0
-            def commit_page(rows):
-                if not rows:
-                    return
-                frame=spark.createDataFrame(rows,BRONZE_DDL).dropDuplicates(['version_key'])
-                (DeltaTable.forName(spark,target).alias('t').merge(frame.alias('s'),
-                    't.version_key=s.version_key').whenNotMatchedInsertAll().execute())
-            while True:
-                query=page_query(snapshot,high,lower,after)
-                ordering=[('_id',ASCENDING)] if snapshot else [('updated_at',ASCENDING),('_id',ASCENDING)]
-                page=list(collection.find(query).sort(ordering).limit(config['page_size']).max_time_ms(60000))
-                if not page:
-                    break
-                documents+=len(page)
-                if documents>config['max_documents_per_source']:
-                    raise RuntimeError('Limite max_documents_per_source excedido para '+alias+'. Aumente o limite; checkpoint não confirmado.')
-                rows=[]; byte_count=0
-                for doc in page:
-                    row=bronze_record(doc,source,config,run_id,started)
-                    size=len(row['raw_json'].encode('utf-8'))
-                    if size>config['max_page_bytes']:
-                        raise ValueError('Documento excede max_page_bytes em '+alias+'; aumente o limite explicitamente.')
-                    if rows and byte_count+size>config['max_page_bytes']:
-                        commit_page(rows); rows=[]; byte_count=0
-                    rows.append(row); byte_count+=size
-                    if snapshot:
-                        updated=doc.get('updated_at')
-                        if hasattr(updated,'tzinfo'):
-                            high=max(high,updated) if high is not None else updated
-                commit_page(rows)
-                after=(page[-1].get('updated_at'),page[-1]['_id']); page_index+=1
-            state=dict(env=config['environment'],source_alias=alias,run_id=run_id,run_started_at=started,
-                completed_at=utcnow(),is_snapshot=snapshot,watermark=high,documents=documents,source_signature=signature)
-            append_frame(spark,spark.createDataFrame([state],STATE_DDL),table(config,'bronze','_ingestion_state'))
-            print('Bronze '+alias+': '+str(documents)+' documentos; snapshot='+str(snapshot))
-        # Somente este commit libera TODAS as collections para Silver e futuros checkpoints.
-        run=dict(env=config['environment'],run_id=run_id,run_started_at=started,completed_at=utcnow(),
-            source_signature=signature,source_aliases=[s['alias'] for s in active],extractor_version=VERSION)
-        append_frame(spark,spark.createDataFrame([run],RUN_DDL),table(config,'bronze','_runs'))
-        print('Bronze concluída. run_id='+run_id)
-        return run_id
-    except Exception as exc:
-        # Erros PyMongo podem incluir hostname. Não registrar URI ou texto do provider.
-        if isinstance(exc,(ValueError,RuntimeError)) and not exc.__class__.__module__.startswith('pymongo'):
-            raise
-        raise RuntimeError('Falha na extração Mongo/Delta ('+type(exc).__name__+'). Confira conexão, rede e permissão find; run não confirmado.') from None
+        spark.sql('MERGE INTO ' + target + ' t USING ' + view + ' s ON t.version_key=s.version_key '
+                  'WHEN NOT MATCHED THEN INSERT *')
     finally:
-        for client in clients.values():
-            client.close()
+        spark.catalog.dropTempView(view)
+
+def iter_jsonl_documents(path, max_bytes):
+    from bson import json_util
+    options = json_util.CANONICAL_JSON_OPTIONS.with_options(tz_aware=True)
+    with open(path, 'rb') as stream:
+        position = 0
+        while True:
+            line = stream.readline(max_bytes + 2)
+            if not line:
+                break
+            position += 1
+            if len(line.rstrip(b'\r\n')) > max_bytes:
+                raise ValueError('Linha JSONL excede max_page_bytes; registro ' + str(position))
+            if not line.strip():
+                continue
+            try:
+                document = json_util.loads(line.decode('utf-8'), json_options=options)
+                if not isinstance(document, dict) or '_id' not in document:
+                    raise ValueError()
+            except Exception:
+                raise ValueError('JSONL inválido; registro ' + str(position) + '. Use Extended JSON, um documento por linha.') from None
+            yield position, document
+
+WORKFLOW_TYPES = {
+    'email_preparations': 'preparation',
+    'pending_recipient_resolutions': 'pending_resolution',
+    'email_authorizations': 'authorization',
+    'email_operation_references': 'operation_reference',
+}
+
+def ingest_jsonl(spark, config):
+    from pathlib import Path
+    active = sources(config)
+    files = {s['alias']: Path(config['jsonl_path']) / (('email_workflows' if s['alias'] in WORKFLOW_TYPES else s['alias']) + '.jsonl') for s in active}
+    missing = [alias for alias, path in files.items() if not path.is_file()]
+    if missing:
+        raise ValueError('JSONL ausente para: ' + ', '.join(missing) + '. Cada origem exige snapshot completo, inclusive arquivo vazio.')
+    ensure_schemas(spark, config)
+    signature = config_signature(config)
+    run_id, started = str(uuid4()), utcnow()
+    for name, ddl_text in (('_runs', RUN_DDL), ('_ingestion_state', STATE_DDL)):
+        target = table(config, 'bronze', name)
+        assert_delta(spark, target)
+        spark.sql('CREATE TABLE IF NOT EXISTS ' + target + ' (' + ddl_text + ') USING DELTA')
+    for source in active:
+        alias = source['alias']
+        target = table(config, 'bronze', 'b_' + alias)
+        ensure_bronze_table(spark, target)
+        rows, byte_count, documents, high = [], 0, 0, None
+        for position, doc in iter_jsonl_documents(files[alias], config['max_page_bytes']):
+            if alias in WORKFLOW_TYPES:
+                if doc.get('record_type') not in WORKFLOW_TYPES.values():
+                    raise ValueError('record_type desconhecido em email_workflows; run não confirmado.')
+                if doc['record_type'] != WORKFLOW_TYPES[alias]:
+                    continue
+            documents += 1
+            if documents > config['max_documents_per_source']:
+                raise RuntimeError('Limite max_documents_per_source excedido para ' + alias + '; run não confirmado.')
+            row = bronze_record(doc, source, config, run_id, started, str(files[alias]), position)
+            size = len(row['raw_json'].encode('utf-8'))
+            if size > config['max_page_bytes']:
+                raise ValueError('Documento excede max_page_bytes em ' + alias)
+            if rows and (len(rows) >= config['page_size'] or byte_count + size > config['max_page_bytes']):
+                merge_page(spark, target, rows)
+                rows, byte_count = [], 0
+            rows.append(row)
+            byte_count += size
+            updated = row['source_updated_at']
+            if updated is not None:
+                high = max(high, updated) if high is not None else updated
+        merge_page(spark, target, rows)
+        state = dict(env=config['environment'], source_alias=alias, run_id=run_id, run_started_at=started,
+            completed_at=utcnow(), is_snapshot=True, watermark=high, documents=documents, source_signature=signature)
+        append_frame(spark, spark.createDataFrame([state], STATE_DDL), table(config, 'bronze', '_ingestion_state'))
+        print('Bronze JSONL ' + alias + ': ' + str(documents) + ' documentos; snapshot=True')
+    run = dict(env=config['environment'], run_id=run_id, run_started_at=started, completed_at=utcnow(),
+        source_signature=signature, source_aliases=[s['alias'] for s in active], extractor_version=VERSION)
+    append_frame(spark, spark.createDataFrame([run], RUN_DDL), table(config, 'bronze', '_runs'))
+    print('Bronze JSONL concluída. run_id=' + run_id)
+    return run_id
 
 # COMMAND ----------
-# Conexão: preencha os widgets de Secret Scope OU esta URI.
-# Não use mongodb://localhost:27017: localhost aqui é o compute do Databricks.
-# Nunca publique o notebook depois de preencher credenciais diretamente.
-MONGO_URI = 'PREENCHA_A_URI_MONGODB_OU_USE_SECRET_SCOPE'
-# Vazio reutiliza a URI principal; preencha só se o A2A usa outro cluster.
-MONGO_A2A_URI = ''
+# Snapshot JSONL completo em jsonl_path (/Volumes).
 config=read_config(dbutils)
-ingest(spark,dbutils,config,MONGO_URI,MONGO_A2A_URI)
+ingest(spark,config)

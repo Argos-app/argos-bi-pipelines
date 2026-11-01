@@ -1,12 +1,7 @@
-"""Massa sintética para validar a DAG sem conexão com Mongo ou LLM."""
+"""Registros mínimos usados somente nos testes locais."""
 import json
-from datetime import datetime,timedelta,timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-from .common import VERSION, sources, config_signature, ensure_schemas, table, append_frame, utcnow
-from .schemas import BRONZE_DDL,STATE_DDL,RUN_DDL
-from .bronze import bronze_record
-from .silver import run_silver
-from .gold import run_gold,validate_pipeline,GOLD_KEYS
 
 def fixture_documents():
     from bson.decimal128 import Decimal128
@@ -33,6 +28,7 @@ def fixture_documents():
             created_at=d if status=='started' else d+timedelta(seconds=2),
             completed_at=None if status=='started' else d+timedelta(seconds=2),
             sanitized_output=None if status=='started' else json.dumps({'decision':'approved','reason':'Fixture','unsupported_claims':[]}),messages=[]))
+    events = [dict(events[-1], _id=events[0]['_id'], created_at=d)]
     obs=[]
     def span(oid,kind,name,start,end,parent=None,agent=None):
         return dict(_id=oid,schema_version='2',service='main_api',environment='fixture',operation_kind=kind,
@@ -74,42 +70,10 @@ def fixture_documents():
       'email_reports':[dict(_id=ids['report'],requested_by=ids['user'],recipients=[],attachments=[],state='prepared',created_at=d,expires_at=expires)],
       'email_dispatches':[dict(_id=ids['operation'],report_id=ids['report'],requested_by=ids['user'],idempotency_key='fixture',state='accepted',created_at=d,updated_at=d)],
     }
+    for alias, kind in (('email_preparations','preparation'), ('pending_recipient_resolutions','pending_resolution'),
+                        ('email_authorizations','authorization'), ('email_operation_references','operation_reference')):
+        for doc in docs[alias]:
+            doc['record_type'] = kind
+    docs['email_operation_references'][0]['_id'] = 'operation:' + ids['authorization']
     return docs,ids
 
-def run_fixture(spark, base_config):
-    from pyspark.sql import functions as F
-    from decimal import Decimal
-    suffix=uuid4().hex[:8]
-    config=dict(base_config,environment='fixture_'+suffix,collections_json='{}',mongo_database='fixture',mongo_a2a_database='')
-    for layer in ('bronze','silver','gold'):
-        config[layer+'_schema']=base_config[layer+'_schema']+'_fixture_'+suffix
-    ensure_schemas(spark,config)
-    docs,ids=fixture_documents(); run_id=str(uuid4()); started=utcnow(); signature=config_signature(config)
-    for source in sources(config):
-        target=table(config,'bronze','b_'+source['alias'])
-        spark.sql('CREATE TABLE '+target+' ('+BRONZE_DDL+') USING DELTA')
-        rows=[bronze_record(doc,source,config,run_id,started) for doc in docs[source['alias']]]
-        if rows: append_frame(spark,spark.createDataFrame(rows,BRONZE_DDL),target)
-        state=dict(env=config['environment'],source_alias=source['alias'],run_id=run_id,run_started_at=started,
-            completed_at=utcnow(),is_snapshot=True,watermark=None,documents=len(rows),source_signature=signature)
-        append_frame(spark,spark.createDataFrame([state],STATE_DDL),table(config,'bronze','_ingestion_state'))
-    run=dict(env=config['environment'],run_id=run_id,run_started_at=started,completed_at=utcnow(),source_signature=signature,
-        source_aliases=[s['alias'] for s in sources(config)],extractor_version=VERSION)
-    append_frame(spark,spark.createDataFrame([run],RUN_DDL),table(config,'bronze','_runs'))
-    run_silver(spark,config)
-    for name in GOLD_KEYS: run_gold(spark,config,name)
-    validate_pipeline(spark,config)
-    assert spark.table(table(config,'gold','g_interactions')).count()==2
-    assert spark.table(table(config,'gold','g_observations')).count()==4
-    assert spark.table(table(config,'gold','g_invocations')).count()==1
-    inv=spark.table(table(config,'gold','g_invocations')).first()
-    assert (inv.ended_at-inv.started_at).total_seconds()==2
-    membership=spark.table(table(config,'silver','s_cycle_membership')).collect()
-    assert all(x.root_interaction_id==ids['root'] and x.link_status=='valid' for x in membership)
-    cost=spark.table(table(config,'gold','g_observations')).agg(F.sum('billing.reported_cost')).first()[0]
-    assert cost==Decimal('0.00012345678901234567')
-    assert spark.table(table(config,'silver','s_observation_resources')).count()==1
-    filtered=spark.table(table(config,'gold','g_interactions')).filter(F.array_contains('farm_ids',ids['farm']))
-    assert filtered.count()==2
-    print('Fixture aprovada; 3 schemas de teste preservados: '+', '.join(config[x+'_schema'] for x in ('bronze','silver','gold')))
-    return config

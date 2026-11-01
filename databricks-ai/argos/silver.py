@@ -3,6 +3,7 @@ from .common import VERSION, SOURCE_DEFINITIONS, table, sources, config_signatur
 from .schemas import SCHEMAS, IDS, frame_schema
 from .parsing import parse_record
 from .bronze import latest_run
+from .staging import DeltaStage
 
 def committed_bronze(spark, config, alias, run):
     from pyspark.sql import functions as F
@@ -29,43 +30,40 @@ def quarantine(spark, config, frame, run_id):
         append_frame(spark,q,table(config,'silver','q_records'))
     return n
 
-def parse_source(spark, config, alias, raw, run):
+def parse_source(spark, config, alias, raw, run, stage):
     from pyspark.sql import functions as F, Window
     from pyspark.sql.types import StructType,StructField,StringType,ArrayType
     canonical='observations' if alias=='a2a_observations' else alias
     schema=frame_schema(spark,SCHEMAS[canonical])
     result_schema=StructType([StructField('record',schema),StructField('errors',ArrayType(StringType())),StructField('semantic_hash',StringType())])
     parser=F.udf(lambda text:parse_record(canonical,text),result_schema)
-    parsed=raw.withColumn('p',parser('raw_json')).persist()
-    try:
-        count_bad=quarantine(spark,config,parsed.filter(F.size('p.errors')>0),run.run_id)
-        if count_bad and config['fail_on_quarantine']:
-            raise ValueError('Quarentena em '+alias+': '+str(count_bad)+' versões. Consulte silver.q_records; nenhuma Gold será publicada.')
-        valid=parsed.filter(F.size('p.errors')==0)
-        # Event IDs imutáveis e observações terminais não admitem conteúdo divergente.
-        if canonical in ('observations','execution_events'):
-            terminal=valid.filter(F.col('p.record.status')!='started') if canonical=='observations' else valid
-            conflicts=(terminal.groupBy('env','document_id').agg(F.countDistinct('p.semantic_hash').alias('variants'))
-                       .filter('variants>1').select('env','document_id'))
-            conflict_rows=valid.join(conflicts,['env','document_id'],'inner')
-            marked=conflict_rows.withColumn('p',F.struct(F.col('p.record').alias('record'),
-                F.array(F.lit('identity:conflicting_content')).alias('errors'),F.col('p.semantic_hash').alias('semantic_hash')))
-            conflict_count=quarantine(spark,config,marked,run.run_id)
-            if conflict_count and config['fail_on_quarantine']:
-                raise ValueError('Conteúdo divergente para mesma identidade em '+alias+'. Consulte q_records.')
-            valid=valid.join(conflicts,['env','document_id'],'left_anti')
-        ordering=[]
-        if canonical=='observations':
-            ordering.append(F.when(F.col('p.record.status')=='started',0).otherwise(1).desc())
-        ordering.extend([F.col('source_version').desc_nulls_last(),F.col('source_updated_at').desc_nulls_last(),
-                         F.col('run_started_at').desc(),F.col('version_key').desc()])
-        window=Window.partitionBy('env','document_id').orderBy(*ordering)
-        current=valid.withColumn('_rn',F.row_number().over(window)).filter('_rn=1')
-        return current.select('env','p.record.*','source_alias','source_collection','source_database',
-            F.col('version_key').alias('bronze_version_key'),'source_updated_at',
-            F.lit(VERSION).alias('transform_version'),F.lit(run.run_id).alias('published_batch_id')).localCheckpoint(eager=True)
-    finally:
-        parsed.unpersist()
+    parsed=stage.materialize(raw.withColumn('p',parser('raw_json')))
+    count_bad=quarantine(spark,config,parsed.filter(F.size('p.errors')>0),run.run_id)
+    if count_bad and config['fail_on_quarantine']:
+        raise ValueError('Quarentena em '+alias+': '+str(count_bad)+' versões. Consulte silver.q_records; nenhuma Gold será publicada.')
+    valid=parsed.filter(F.size('p.errors')==0)
+    # Event IDs imutáveis e observações terminais não admitem conteúdo divergente.
+    if canonical in ('observations','execution_events'):
+        terminal=valid.filter(F.col('p.record.status')!='started') if canonical=='observations' else valid
+        conflicts=(terminal.groupBy('env','document_id').agg(F.countDistinct('p.semantic_hash').alias('variants'))
+                   .filter('variants>1').select('env','document_id'))
+        conflict_rows=valid.join(conflicts,['env','document_id'],'inner')
+        marked=conflict_rows.withColumn('p',F.struct(F.col('p.record').alias('record'),
+            F.array(F.lit('identity:conflicting_content')).alias('errors'),F.col('p.semantic_hash').alias('semantic_hash')))
+        conflict_count=quarantine(spark,config,marked,run.run_id)
+        if conflict_count and config['fail_on_quarantine']:
+            raise ValueError('Conteúdo divergente para mesma identidade em '+alias+'. Consulte q_records.')
+        valid=valid.join(conflicts,['env','document_id'],'left_anti')
+    ordering=[]
+    if canonical=='observations':
+        ordering.append(F.when(F.col('p.record.status')=='started',0).otherwise(1).desc())
+    ordering.extend([F.col('source_version').desc_nulls_last(),F.col('source_updated_at').desc_nulls_last(),
+                     F.col('run_started_at').desc(),F.col('version_key').desc()])
+    window=Window.partitionBy('env','document_id').orderBy(*ordering)
+    current=valid.withColumn('_rn',F.row_number().over(window)).filter('_rn=1')
+    return current.select('env','p.record.*','source_alias','source_collection','source_database',
+        F.col('version_key').alias('bronze_version_key'),'source_updated_at',
+        F.lit(VERSION).alias('transform_version'),F.lit(run.run_id).alias('published_batch_id'))
 
 def build_invocations(spark, config):
     from pyspark.sql import functions as F
@@ -88,7 +86,7 @@ def build_invocations(spark, config):
         .select('env','invocation_id',*[F.coalesce(F.col('a.'+k),F.col('z.'+k)).alias(k)
              for k in ('interaction_id','session_id','target','target_name','attempt')],
             F.col('a.event_id').alias('start_event_id'),F.col('z.event_id').alias('end_event_id'),
-            F.col('a.created_at').alias('started_at'),F.col('z.completed_at').alias('ended_at'),
+            F.coalesce(F.col('a.created_at'),F.col('z.created_at')).alias('started_at'),F.col('z.completed_at').alias('ended_at'),
             F.col('z.status').alias('terminal_status'),F.col('z.safe_error_code').alias('safe_error_code'),
             F.col('z.judge_decision').alias('judge_decision'),F.col('z.judge_parse_status').alias('judge_parse_status'),
             F.col('z.unsupported_claims').alias('unsupported_claims'),
@@ -97,7 +95,7 @@ def build_invocations(spark, config):
         raise ValueError('Fim de invocação anterior ao início.')
     return result
 
-def build_membership(spark, config):
+def build_membership(spark, config, stage):
     from pyspark.sql import functions as F
     i=spark.table(table(config,'silver','s_interactions'))
     m=spark.table(table(config,'silver','s_messages')).filter("role='user' AND kind='user_input'")
@@ -116,15 +114,15 @@ def build_membership(spark, config):
     resolved=(linked.select('env','interaction_id','source_interaction_id','published_batch_id',
         F.when(F.col('interaction_kind')=='message',F.col('interaction_id')).alias('root_interaction_id'),
         F.when((F.col('interaction_kind')=='answer') & valid_parent,F.col('pid')).alias('valid_parent_id')))
-    resolved=resolved.localCheckpoint(eager=True)
+    resolved=stage.materialize(resolved)
     for _ in range(config['max_cycle_depth']):
         parents=resolved.select(F.col('env').alias('pe'),F.col('interaction_id').alias('pi'),F.col('root_interaction_id').alias('pr'))
         joined=resolved.join(parents,(resolved.env==parents.pe)&(resolved.valid_parent_id==parents.pi),'left')
         if not joined.filter('root_interaction_id IS NULL AND pr IS NOT NULL').limit(1).count():
             break
         nxt=joined.select('env','interaction_id','source_interaction_id','published_batch_id','valid_parent_id',
-            F.coalesce('root_interaction_id','pr').alias('root_interaction_id')).localCheckpoint(eager=True)
-        resolved.unpersist(); resolved=nxt
+            F.coalesce('root_interaction_id','pr').alias('root_interaction_id'))
+        resolved=stage.materialize(nxt)
     # Qualquer bifurcação contamina a cadeia inteira, inclusive a raiz.
     branches=(resolved.filter('valid_parent_id IS NOT NULL').groupBy('env','valid_parent_id').count()
               .filter('count>1').select('env',F.col('valid_parent_id').alias('bid')))
@@ -134,7 +132,7 @@ def build_membership(spark, config):
         .select('env','interaction_id','root_interaction_id','source_interaction_id','published_batch_id',
             F.when(F.col('root_interaction_id').isNull(),'unknown').when(F.col('ambiguous'),'ambiguous').otherwise('valid').alias('link_status')))
 
-def run_silver(spark, config):
+def _run_silver(spark, config, stage):
     from pyspark.sql import functions as F
     ensure_schemas(spark,config)
     spark.sql('CREATE TABLE IF NOT EXISTS '+table(config,'silver','q_records')+''' (
@@ -156,7 +154,7 @@ def run_silver(spark, config):
     for alias in [x[0] for x in SOURCE_DEFINITIONS]:
         canonical='observations' if alias=='a2a_observations' else alias
         if alias in active:
-            frame=parse_source(spark,config,alias,committed_bronze(spark,config,alias,run),run)
+            frame=parse_source(spark,config,alias,committed_bronze(spark,config,alias,run),run,stage)
         else:
             spec=dict(env='STRING',**SCHEMAS[canonical],source_alias='STRING',source_collection='STRING',source_database='STRING',
                 bronze_version_key='STRING',source_updated_at='TIMESTAMP',transform_version='STRING',published_batch_id='STRING')
@@ -165,11 +163,9 @@ def run_silver(spark, config):
             observation_frames.append(frame); continue
         assert_unique(frame,['env',IDS[canonical]],canonical)
         write_snapshot(spark,frame,table(config,'silver','s_'+canonical))
-        frame.unpersist()
     obs=observation_frames[0].unionByName(observation_frames[1])
     assert_unique(obs,['env','observation_id'],'observations global API/A2A')
     write_snapshot(spark,obs,table(config,'silver','s_observations'))
-    for frame in observation_frames: frame.unpersist()
     # Tipos/linhagem permanecem no fato, filhos têm posição explícita.
     events=spark.table(table(config,'silver','s_execution_events'))
     assert_unique(events,['env','session_id','interaction_id','event_id'],'execution_events')
@@ -185,7 +181,7 @@ def run_silver(spark, config):
     invocations=build_invocations(spark,config)
     assert_unique(invocations,['env','invocation_id'],'invocations')
     write_snapshot(spark,invocations,table(config,'silver','s_invocations'))
-    membership=build_membership(spark,config)
+    membership=build_membership(spark,config,stage)
     assert_unique(membership,['env','interaction_id'],'cycle_membership')
     write_snapshot(spark,membership,table(config,'silver','s_cycle_membership'))
     observations=spark.table(table(config,'silver','s_observations'))
@@ -230,3 +226,8 @@ def run_silver(spark, config):
         'env STRING, published_batch_id STRING, completed_at TIMESTAMP, transform_version STRING, state STRING')
     write_snapshot(spark,marker,table(config,'silver','_publication'))
     print('Silver concluída: '+run.run_id)
+
+
+def run_silver(spark, config):
+    with DeltaStage(spark, config) as stage:
+        return _run_silver(spark, config, stage)

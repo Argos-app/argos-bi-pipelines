@@ -1,7 +1,7 @@
 -- PROPOSTA: executar CADA bloco Q separadamente como dataset de dashboard.
 -- Somente SELECT/WITH; não persistir como tabela, view ou materialização.
--- Dependência: Gold definida em exemplos-camadas.sql e catálogo no plano.
--- Parâmetros: inicio/fim timestamps UTC [inicio,fim); ambiente obrigatório.
+-- Dependência: Gold criada pelos notebooks Free Edition e catálogo no plano.
+-- Parâmetros: inicio/fim timestamps UTC [inicio,fim).
 -- Opcionais STRING: fazenda/agente/modelo/endpoint/falha/motivo. NULL ou '' desativa.
 -- Modelo efetivo é retornado, com solicitado como fallback somente no SELECT.
 -- execution_mode: Q02-Q06/Q10/Q12 usam 'real'; uso funcional não tem mode persistido.
@@ -10,8 +10,8 @@
 -- Q01. Uso semanal e WAU (semanas parciais visíveis pelas datas dos parâmetros).
 WITH b AS (
   SELECT *, date_trunc('week',from_utc_timestamp(created_at,'America/Sao_Paulo')) AS semana
-  FROM ai_bi.gold.g_interactions
-  WHERE env=:ambiente AND created_at>=CAST(:inicio AS TIMESTAMP)
+  FROM workspace.gold_ia.g_interactions
+  WHERE created_at>=CAST(:inicio AS TIMESTAMP)
     AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL
       OR coalesce(array_contains(farm_ids,:fazenda),false))
@@ -27,8 +27,8 @@ FROM b GROUP BY semana ORDER BY semana;
 
 -- Q02. Tokens e custo CONHECIDOS, separados por moeda/origem. Só chamadas canônicas.
 WITH b AS (
-  SELECT * FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND status<>'started'
+  SELECT * FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND status<>'started'
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
     AND (replayed_result IS NULL OR replayed_result=false)
     AND ((operation_kind='model' AND operation_name='model.invoke' AND observation_level='sdk_invocation')
@@ -61,8 +61,8 @@ SELECT service,operation_kind,operation_name,observation_level,agent,
        percentile_approx(duration_ms,0.50,10000) AS p50_ms,
        percentile_approx(duration_ms,0.95,10000) AS p95_ms,
        percentile_approx(duration_ms,0.99,10000) AS p99_ms
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND execution_mode='real' AND status<>'started' AND duration_ms IS NOT NULL
+FROM workspace.gold_ia.g_observations
+WHERE execution_mode='real' AND status<>'started' AND duration_ms IS NOT NULL
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
   AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)
@@ -75,15 +75,15 @@ GROUP BY service,operation_kind,operation_name,observation_level,agent,
 -- Não usa SUM(duration_ms) como tempo de resposta. Relógios apenas do mesmo serviço.
 -- Sem filtro de agente para não transformar decomposição em execução parcial escondida.
 WITH g AS (
-  SELECT * FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND operation_kind='graph'
+  SELECT * FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND operation_kind='graph'
     AND operation_name IN ('graph.execute','graph.resume') AND status<>'started'
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), children AS (
   SELECT g.observation_id AS graph_id, g.env, a.observation_id AS agent_span,
          a.started_at AS s,a.ended_at AS e,a.status
-  FROM g JOIN ai_bi.gold.g_observations a
+  FROM g JOIN workspace.gold_ia.g_observations a
     ON a.env=g.env AND a.parent_observation_id=g.observation_id
    AND a.service=g.service AND a.operation_kind='agent' AND a.execution_mode='real'
 ), valid AS (
@@ -131,8 +131,8 @@ GROUP BY g.operation_name;
 -- Q05. Erros por estrato. Falha filtra o NUMERADOR, não o denominador.
 -- Grão de denominador: mesma operação/nível/agente/modelo/endpoint, todas as tentativas terminais.
 WITH b AS (
-  SELECT * FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND status<>'started'
+  SELECT * FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND status<>'started'
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
     AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)
@@ -165,8 +165,8 @@ SELECT date_trunc('hour',ended_at) AS hora_utc,service,agent,operation_name,
          AS chamadas_por_hora_equivalente,
        count_if(status='succeeded')*1.0/nullif(count(*),0) AS sucesso_tecnico,
        percentile_approx(duration_ms,0.95,10000) AS p95_ms
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND execution_mode='real' AND operation_kind='agent' AND status<>'started'
+FROM workspace.gold_ia.g_observations
+WHERE execution_mode='real' AND operation_kind='agent' AND status<>'started'
   AND ended_at>=CAST(:inicio AS TIMESTAMP) AND ended_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
   AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)
@@ -178,8 +178,8 @@ GROUP BY date_trunc('hour',ended_at),service,agent,operation_name,
 -- Não limitar spans por started_at: incluir términos tardios da mesma interação.
 -- USD apenas; moedas outras ficam desconhecidas para esta medida. Sem conversão implícita.
 WITH cohort AS (
-  SELECT * FROM ai_bi.gold.g_interactions
-  WHERE env=:ambiente AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
+  SELECT * FROM workspace.gold_ia.g_interactions
+  WHERE created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), cost AS (
   SELECT env,interaction_id,count(*) AS n,
@@ -187,8 +187,8 @@ WITH cohort AS (
          sum(CASE WHEN billing.currency='USD' AND status<>'started' THEN billing.reported_cost END) AS usd,
          count_if(billing.cost_source='configured_rate') AS estimated,
          count_if(attempt_visibility='internal_retries_unknown') AS opaque
-  FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND replayed_result IS NOT TRUE
+  FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND replayed_result IS NOT TRUE
     AND ((operation_kind='model' AND operation_name='model.invoke' AND observation_level='sdk_invocation')
       OR (operation_kind='model' AND operation_name='model.a2a.answer.generate' AND observation_level='transport_attempt')
       OR (operation_kind='embedding' AND operation_name='embedding.a2a.embed' AND observation_level='transport_attempt'))
@@ -216,25 +216,25 @@ FROM j GROUP BY interaction_status;
 -- raíz na janela; membros e custos lidos sem corte de data para capturar esclarecimentos.
 -- s_cycle_membership só marca valid após validar cadeia, pergunta, titular e ausência de branches.
 WITH roots AS (
-  SELECT * FROM ai_bi.gold.g_interactions
-  WHERE env=:ambiente AND interaction_kind='message'
+  SELECT * FROM workspace.gold_ia.g_interactions
+  WHERE interaction_kind='message'
     AND interaction_id=root_interaction_id AND link_status='valid'
     AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), members AS (
   SELECT m.*,r.created_at AS root_created
-  FROM roots r JOIN ai_bi.gold.g_interactions m
+  FROM roots r JOIN workspace.gold_ia.g_interactions m
     ON r.env=m.env AND r.interaction_id=m.root_interaction_id
 ), children AS (
   SELECT env,source_interaction_id,count(*) AS n
-  FROM ai_bi.gold.g_interactions WHERE source_interaction_id IS NOT NULL
+  FROM workspace.gold_ia.g_interactions WHERE source_interaction_id IS NOT NULL
   GROUP BY env,source_interaction_id
 ), obs AS (
   SELECT env,interaction_id,count(*) AS n,
      count_if(status<>'started' AND billing.currency='USD' AND billing.reported_cost IS NOT NULL) AS priced,
      sum(CASE WHEN status<>'started' AND billing.currency='USD' THEN billing.reported_cost END) AS usd
-  FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND replayed_result IS NOT TRUE
+  FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND replayed_result IS NOT TRUE
     AND ((operation_kind='model' AND operation_name='model.invoke' AND observation_level='sdk_invocation')
       OR (operation_kind='model' AND operation_name='model.a2a.answer.generate' AND observation_level='transport_attempt')
       OR (operation_kind='embedding' AND operation_name='embedding.a2a.embed' AND observation_level='transport_attempt'))
@@ -272,8 +272,8 @@ FROM cycle;
 -- Q08b. Cobertura da reconstrução de ciclos: não esconder raízes ambíguas/desconhecidas.
 SELECT link_status,count(*) AS perguntas_iniciais,
        count_if(root_interaction_id IS NULL) AS sem_raiz_reconstruida
-FROM ai_bi.gold.g_interactions
-WHERE env=:ambiente AND interaction_kind='message'
+FROM workspace.gold_ia.g_interactions
+WHERE interaction_kind='message'
   AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 GROUP BY link_status;
@@ -338,8 +338,8 @@ SELECT request_route,request_method,count(*) AS requests_terminais,
        count_if(request_status_code>=500 OR status IN ('failed','timeout')) AS falhas_servidor_ou_transporte,
        count_if(request_status_code BETWEEN 200 AND 399)*1.0/nullif(count(request_status_code),0) AS fracao_http_bom,
        count_if(request_status_code BETWEEN 200 AND 399)*1.0/nullif(count(*),0) AS fracao_conservadora_observada
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND execution_mode='real' AND operation_kind='http'
+FROM workspace.gold_ia.g_observations
+WHERE execution_mode='real' AND operation_kind='http'
   AND operation_name='http.request' AND status<>'started'
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:endpoint),'') IS NULL OR request_route=:endpoint)
@@ -353,8 +353,8 @@ SELECT target_name,count(*) AS invocacoes,
        percentile_approx(timestampdiff(MILLISECOND,started_at,ended_at),0.50,10000) AS p50_ms,
        percentile_approx(timestampdiff(MILLISECOND,started_at,ended_at),0.95,10000) AS p95_ms,
        percentile_approx(timestampdiff(MILLISECOND,started_at,ended_at),0.99,10000) AS p99_ms
-FROM ai_bi.gold.g_invocations
-WHERE env=:ambiente AND target='tool'
+FROM workspace.gold_ia.g_invocations
+WHERE target='tool'
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 GROUP BY target_name;
@@ -363,8 +363,8 @@ GROUP BY target_name;
 WITH b AS (
   SELECT *,lag(started_at) OVER(PARTITION BY env,service,agent,operation_name,error.type,error.code
      ORDER BY started_at,observation_id) AS previous_failure
-  FROM ai_bi.gold.g_observations
-  WHERE env=:ambiente AND execution_mode='real' AND status IN ('failed','timeout')
+  FROM workspace.gold_ia.g_observations
+  WHERE execution_mode='real' AND status IN ('failed','timeout')
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
     AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)
@@ -387,8 +387,8 @@ SELECT response_kind,count(*) AS interacoes_terminais,
        count_if(interaction_status='degraded') AS degradadas,
        count_if(interaction_status='degraded')*1.0/nullif(count(*),0) AS taxa_degradacao_populacao_filtrada,
        count_if(result_parse_status='invalid') AS resultado_invalido
-FROM ai_bi.gold.g_interactions
-WHERE env=:ambiente AND interaction_status IN ('completed','degraded','failed','interrupted')
+FROM workspace.gold_ia.g_interactions
+WHERE interaction_status IN ('completed','degraded','failed','interrupted')
   AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
   AND (nullif(trim(:motivo),'') IS NULL OR coalesce(array_contains(degradation_reasons,:motivo),false))
@@ -401,8 +401,8 @@ SELECT count(*) AS invocacoes_juiz,
        count_if(judge_decision='approved')*1.0/nullif(count_if(judge_parse_status='valid'),0) AS aprovacao,
        count_if(judge_decision='revise') AS revisoes,count_if(judge_decision='rejected') AS rejeicoes,
        count_if(judge_parse_status='valid' AND size(unsupported_claims)>0) AS com_alegacoes_sem_fonte
-FROM ai_bi.gold.g_invocations
-WHERE env=:ambiente AND target='agent' AND target_name='judge'
+FROM workspace.gold_ia.g_invocations
+WHERE target='agent' AND target_name='judge'
   AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
   AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false));
 
@@ -412,8 +412,8 @@ SELECT state,count(*) AS operacoes,
        percentile_approx(CASE WHEN state='pending'
           THEN timestampdiff(SECOND,created_at,current_timestamp()) END,0.95,10000) AS pending_idade_p95_s,
        count_if(error_code IS NOT NULL) AS com_codigo_erro
-FROM ai_bi.gold.g_email_dispatches
-WHERE env=:ambiente AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
+FROM workspace.gold_ia.g_email_dispatches
+WHERE created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
 GROUP BY state;
 
 -- Q15. Cobertura da observabilidade; :idade_started_seg DOUBLE >=0, ex. 300 é hipótese.
@@ -427,6 +427,27 @@ SELECT service,operation_kind,execution_mode,count(*) AS observacoes,
           AND billing.reported_cost IS NULL) AS sem_custo,
        count_if(attempt_visibility='internal_retries_unknown') AS retries_nao_enumeraveis,
        max(updated_at) AS ultima_atualizacao_origem
-FROM ai_bi.gold.g_observations
-WHERE env=:ambiente AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
+FROM workspace.gold_ia.g_observations
+WHERE started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
 GROUP BY service,operation_kind,execution_mode;
+
+-- Q16. ROI informado para a mesma coorte e moeda: entradas são premissas auditáveis.
+-- O retorno e o custo total devem cobrir o mesmo período/filtros. Não inferir receita.
+WITH p AS (
+ SELECT try_cast(:retorno_usd AS DOUBLE) AS retorno,
+        try_cast(:custo_total_usd AS DOUBLE) AS custo
+)
+SELECT retorno AS retorno_bruto_usd, custo AS custo_total_usd,
+       CASE WHEN retorno >= 0 AND custo > 0 THEN (retorno-custo)/custo END AS roi,
+       CASE WHEN retorno >= 0 AND custo > 0 THEN retorno-custo END AS retorno_liquido_usd
+FROM p;
+
+-- Q17. Amostras individuais para histograma e boxplot nativos de latência.
+SELECT started_at, service, operation_kind, operation_name, agent, request_route,
+       status, duration_ms, user_id, farm_ids
+FROM workspace.gold_ia.g_observations
+WHERE execution_mode='real' AND status <> 'started' AND duration_ms IS NOT NULL
+  AND started_at >= CAST(:inicio AS TIMESTAMP) AND started_at < CAST(:fim AS TIMESTAMP)
+  AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
+  AND (nullif(trim(:agente),'') IS NULL OR agent=:agente)
+  AND (nullif(trim(:endpoint),'') IS NULL OR request_route=:endpoint);

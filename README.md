@@ -7,4 +7,4 @@ Implementação Databricks com tabelas Delta nas camadas Bronze, Silver e Self S
 - [Verificação local e pendências no workspace](databricks/docs/VERIFICACAO.md)
 - [Objetivos e dependências das tabelas Gold](databricks/notebooks/gold/README.md)
 
-- [Pipelines de IA — mesma organização, projeto separado](databricks-ai/README.md)
+- [Pipelines de IA — Free Edition](databricks-ai/README.md)
