@@ -4,15 +4,11 @@ Cada arquivo `.py` grava uma única tabela Delta de mesmo nome em `self_service`
 São 30 tabelas finais e cinco contextos auxiliares, criados na primeira execução.
 O recurso do Job continua sendo `argos_medallion`, com nome base `argos-bronze-silver-self-service` (o target `dev` pode acrescentar um prefixo). O grafo atual contém 38 tasks: Bronze, Silver, 35 Gold e validação.
 
-Veja as telas, parâmetros e a matriz exata no [guia de configuração](../../docs/CONFIGURACAO_DATABRICKS.md) e as evidências no [relatório de verificação](../../docs/VERIFICACAO.md).
-
 ```text
 bronze → silver → lote 1 → lote 2 → lote 3 → lote 4 → lote 5 → lote 6 → lote 7 → validar
 ```
 
 São sete lotes de até cinco tasks. Cada lote aguarda todas as tasks do anterior com `run_if: ALL_SUCCESS`; cada task também mantém `silver` e os contextos Gold que lê como dependências. O lote 1 contém os cinco contextos, com suas dependências internas preservadas. Os lotes seguintes contêm as tabelas finais. Uma falha bloqueia os lotes posteriores.
-
-A matriz por lote e as dependências completas estão no [passo a passo](../../docs/CONFIGURACAO_DATABRICKS.md#7-lotes-gold-e-limite-free). O controle vale para este Job; outros Jobs também consomem o limite de cinco tasks simultâneas da conta Free Edition.
 
 Cada notebook contém seu SQL de negócio e cria uma única tabela Delta. O schema `self_service` é criado pela Bronze; o runner também usa `CREATE SCHEMA IF NOT EXISTS`. Nenhuma tabela de destino precisa existir antes da primeira execução.
 
