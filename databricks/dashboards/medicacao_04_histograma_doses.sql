@@ -6,7 +6,7 @@ WITH dados AS (
     sf_medicine_name,
     floor(try_divide(dose, :largura_bin_dose)) * :largura_bin_dose AS faixa_inicio
   FROM
-    main.self_service.application
+    workspace.self_service.application
   WHERE
     active = true
     AND :largura_bin_dose > 0

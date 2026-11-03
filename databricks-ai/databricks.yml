@@ -1,77 +1,79 @@
+# Definição Lakeflow; não habilite agendamento separado para a pipeline.
 bundle:
-  name: argos-ai-bi
+  name: argos-ai-lakeflow
+variables:
+  catalog: {default: workspace}
+  bronze_schema: {default: bronze_ia}
+  silver_schema: {default: silver_ia}
+  gold_schema: {default: gold_ia}
+  source_database: {default: argos_ai}
+  source_a2a_database: {default: ""}
+  collections_json: {default: "{}"}
+  mongo_source_id: {default: argos_ai}
 resources:
+  pipelines:
+    silver_gold:
+      name: argos-ai-silver-gold
+      catalog: ${var.catalog}
+      schema: ${var.silver_schema}
+      serverless: true
+      continuous: false
+      environment:
+        dependencies: ["pymongo==4.19.0"]
+      libraries:
+        - notebook:
+            path: ./lakeflow/silver_gold.py
+      configuration:
+        argos_ai.project_root: ${workspace.file_path}
+        argos_ai.catalog: ${var.catalog}
+        argos_ai.bronze_schema: ${var.bronze_schema}
+        argos_ai.silver_schema: ${var.silver_schema}
+        argos_ai.gold_schema: ${var.gold_schema}
+        argos_ai.source_database: ${var.source_database}
+        argos_ai.source_a2a_database: ${var.source_a2a_database}
+        argos_ai.collections_json: ${var.collections_json}
+        argos_ai.mongo_source_id: ${var.mongo_source_id}
   jobs:
-    argos_ai_medallion:
-      name: argos-ai-bi
+    argos_ai_lakeflow:
+      name: argos-ai-bronze-lakeflow
       max_concurrent_runs: 1
-      parameters:
-        - name: catalog
-          default: "workspace"
-        - name: bronze_schema
-          default: "bronze_ia"
-        - name: silver_schema
-          default: "silver_ia"
-        - name: gold_schema
-          default: "gold_ia"
-        - name: source_database
-          default: "argos_ai"
-        - name: source_a2a_database
-          default: ""
-        - name: collections_json
-          default: "{}"
-        - name: jsonl_path
-          default: "/Volumes/workspace/bronze_ia/landing/atual"
-        - name: project_root
-          default: "${workspace.file_path}"
-        - name: page_size
-          default: "500"
-        - name: max_documents_per_source
-          default: "1000000"
-        - name: max_page_bytes
-          default: "16777216"
-        - name: max_cycle_depth
-          default: "100"
-        - name: fail_on_quarantine
-          default: "true"
       tasks:
+        - task_key: iniciar
+          notebook_task:
+            notebook_path: ./lakeflow/iniciar.py
+            base_parameters:
+              project_root: ${workspace.file_path}
+              catalog: ${var.catalog}
+              gold_schema: ${var.gold_schema}
         - task_key: bronze
+          depends_on: [{task_key: iniciar}]
           notebook_task:
             notebook_path: ./notebooks/01_bronze.py
-        - task_key: silver
-          depends_on:
-            - task_key: bronze
-          notebook_task:
-            notebook_path: ./notebooks/02_silver.py
-        - task_key: g_interactions
-          depends_on:
-            - task_key: silver
-          notebook_task:
-            notebook_path: ./notebooks/gold/g_interactions.py
-        - task_key: g_observations
-          depends_on:
-            - task_key: silver
-          notebook_task:
-            notebook_path: ./notebooks/gold/g_observations.py
-        - task_key: g_invocations
-          depends_on:
-            - task_key: silver
-          notebook_task:
-            notebook_path: ./notebooks/gold/g_invocations.py
-        - task_key: g_email_dispatches
-          depends_on:
-            - task_key: silver
-          notebook_task:
-            notebook_path: ./notebooks/gold/g_email_dispatches.py
+            base_parameters:
+              project_root: ${workspace.file_path}
+              catalog: ${var.catalog}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              gold_schema: ${var.gold_schema}
+              source_database: ${var.source_database}
+              source_a2a_database: ${var.source_a2a_database}
+              collections_json: ${var.collections_json}
+              mongo_source_id: ${var.mongo_source_id}
+        - task_key: silver_gold
+          depends_on: [{task_key: bronze}]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver_gold.id}
         - task_key: validar
-          depends_on:
-            - task_key: g_interactions
-            - task_key: g_observations
-            - task_key: g_invocations
-            - task_key: g_email_dispatches
+          depends_on: [{task_key: silver_gold}]
           notebook_task:
-            notebook_path: ./notebooks/04_validacao.py
+            notebook_path: ./lakeflow/validar.py
+            base_parameters:
+              project_root: ${workspace.file_path}
+              catalog: ${var.catalog}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              gold_schema: ${var.gold_schema}
 targets:
-  dev:
+  prod:
     default: true
-    mode: development
+    mode: production

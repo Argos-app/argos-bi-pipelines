@@ -10,6 +10,7 @@ DEFAULTS = {
     'gold_schema': 'gold_ia', 'environment': 'argos', 'source_database': 'argos_ai',
     'source_a2a_database': '', 'collections_json': '{}',
     'jsonl_path': '/Volumes/workspace/bronze_ia/landing/atual',
+    'mongo_source_id': 'argos_ai',
     'project_root': '/Workspace/Shared/argos-ai-bi',
     'page_size': '500',
     'max_documents_per_source': '1000000', 'max_page_bytes': '16777216',
@@ -60,7 +61,8 @@ def read_config(dbutils):
         ident(config[key])
     if not config['source_database'].strip():
         raise ValueError('source_database é obrigatório.')
-    validate_jsonl_path(config['jsonl_path'])
+    if not config['mongo_source_id'].strip():
+        raise ValueError('mongo_source_id é obrigatório.')
     for key in ('page_size','max_documents_per_source','max_page_bytes','max_cycle_depth'):
         config[key] = int(config[key])
     if not 1 <= config['page_size'] <= 1000:
@@ -111,7 +113,7 @@ def sources(config):
 
 def config_signature(config):
 
-    identity = dict(sources=sources(config), mode='jsonl', path=config['jsonl_path'])
+    identity = dict(sources=sources(config), mode='mongo_snapshot', source_id=config['mongo_source_id'])
     return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
 
 def ensure_schemas(spark, config):

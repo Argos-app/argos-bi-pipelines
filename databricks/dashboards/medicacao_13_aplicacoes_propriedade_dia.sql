@@ -4,7 +4,7 @@ SELECT
   count(*) AS total_aplicacoes,
   sum(head_count_applied) AS total_cabecas_aplicadas
 FROM
-  main.self_service.application
+  workspace.self_service.application
 WHERE
   sf_property_id IS NOT NULL
   AND sf_herd_id IS NOT NULL

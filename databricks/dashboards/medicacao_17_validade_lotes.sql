@@ -1,6 +1,6 @@
 WITH lotes AS (
   SELECT DISTINCT id, medicine_id, sf_medicine_name, expiry_date, status
-  FROM main.self_service.medicine_batch
+  FROM workspace.self_service.medicine_batch
   WHERE 1=1
   AND (:usuarios IS NULL OR array_contains(:usuarios, sf_user_id))
   AND (:fazendas IS NULL OR array_contains(:fazendas, sf_property_id))

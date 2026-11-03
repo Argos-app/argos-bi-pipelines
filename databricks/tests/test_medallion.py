@@ -88,7 +88,7 @@ class MedallionTests(unittest.TestCase):
                     occurrence_date='2026-10-02', type='DOENCA', resolved=True, resolved_at='2026-10-04')
 
     def dashboard(self, filename, **params):
-        query = (ROOT / 'dashboards' / filename).read_text(encoding='utf-8').replace('main.self_service', 'argos.self_service')
+        query = (ROOT / 'dashboards' / filename).read_text(encoding='utf-8').replace('workspace.self_service', 'argos.self_service')
         parsed = sqlglot.parse_one(query, read='databricks')
         parameters = {placeholder.name: None for placeholder in parsed.find_all(sqlglot.exp.Placeholder)}
         parameters.update(params)
@@ -97,6 +97,70 @@ class MedallionTests(unittest.TestCase):
 
                 parameters[key] = value
         return self.db.execute(translate(query), parameters).fetchall()
+
+    def test_telas_e_acessos_deduplicam_contexto_e_respeitam_filtros(self):
+        self.seed()
+        self.insert('interaction_audit', id='I1', user_id='U1', action_type='ENTRAR_TELA',
+                    element_type='ACTIVITY', element_id='HOME', element_name='INICIO', created_at='2026-10-02 09:00:00')
+        self.insert('interaction_audit', id='I2', user_id='U1', action_type='CLIQUE',
+                    element_type='BOTAO', element_id='B1', element_name='SALVAR', created_at='2026-10-02 09:01:00')
+        self.insert('interaction_audit', id='I3', user_id='U2', action_type='ENTRAR_TELA',
+                    element_type='ACTIVITY', element_id='HOME', element_name='INICIO', created_at='2026-10-03 09:00:00')
+        self.insert('access_audit', id='AU1', user_id='U1', source='MOBILE', success=True,
+                    happened_at='2026-10-02 09:00:00', login_tried='U1')
+        self.insert('access_audit', id='AU2', source='WEB', success=False, failure_reason='USUARIO_INEXISTENTE',
+                    happened_at='2026-10-02 10:00:00', login_tried='DESCONHECIDO')
+        entradas = self.dashboard('acesso_20_entradas_telas.sql', data_inicio='2026-10-02', data_fim='2026-10-02')
+        self.assertEqual(len(entradas), 1)
+        self.assertEqual(entradas[0][-2:], (1, 1))
+        self.assertEqual(self.dashboard('acesso_20_entradas_telas.sql', fazendas=['P3'])[0][-2:], (1, 1))
+        interacoes = self.dashboard('acesso_21_interacoes_elementos.sql', usuarios=['U1'])
+        self.assertEqual(sum(row[-2] for row in interacoes), 2)
+        acessos = self.dashboard('acesso_22_autenticacao.sql')
+        self.assertEqual(sum(row[-2] for row in acessos), 2)
+        self.assertEqual(sum(row[-2] for row in self.dashboard('acesso_22_autenticacao.sql', usuarios=['U1'])), 1)
+
+    def test_notificacoes_situacao_inclui_pendentes_e_envios_exigem_data(self):
+        self.seed()
+        self.insert('alert', id='AL1', user_id='U1', lot_id='L1', type='CARENCIA', status='NOVO')
+        self.insert('notification_delivery', id='N1', alert_id='AL1', device_id='D1', channel='PUSH',
+                    status='ENVIADO', attempts=1, sent_at='2026-10-02 09:00:00')
+        self.insert('notification_delivery', id='N2', alert_id='AL1', device_id='D1', channel='PUSH',
+                    status='FALHOU', attempts=2, error='FALHA')
+        self.insert('notification_delivery', id='N3', alert_id='AL1', device_id='D1', channel='EMAIL',
+                    status='PENDENTE', attempts=0)
+        situacao = self.dashboard('operacional_23_notificacoes_situacao.sql', fazendas=['P1'])
+        self.assertEqual(sum(row[2] for row in situacao), 3)
+        self.assertEqual(sum(row[-1] for row in situacao), 1)
+        enviados = self.dashboard('operacional_24_notificacoes_envios.sql', data_inicio='2026-10-02', data_fim='2026-10-02')
+        self.assertEqual(len(enviados), 1)
+        self.assertEqual(enviados[0][1:5], ('PUSH', 'ENVIADO', 1, 1))
+        self.assertEqual(self.dashboard('operacional_24_notificacoes_envios.sql', data_inicio='2026-10-03'), [])
+        self.assertEqual(self.dashboard('operacional_23_notificacoes_situacao.sql', fazendas=['P2']), [])
+
+    def test_cargas_preservam_estados_e_contagens_de_cada_execucao(self):
+        self.insert('load_run', id='R1', routine_name='RPA', source='BASE', status='PARCIAL',
+                    start_time='2026-10-02 09:00:00', end_time='2026-10-02 09:01:00',
+                    rows_read=10, rows_inserted=5, rows_updated=3, rows_rejected=2)
+        self.insert('load_run', id='R2', routine_name='RPA', source='BASE', status='EXECUTANDO',
+                    start_time='2026-10-02 10:00:00', rows_read=0, rows_inserted=0, rows_updated=0, rows_rejected=0)
+        self.insert('load_error', id='E1', load_run_id='R1', source_table='LOT', attempts=2, reprocessed=False)
+        self.insert('load_error', id='E2', load_run_id='R1', source_table='LOT', attempts=1, reprocessed=True)
+        self.insert('load_staging', id='S1', load_run_id='R1', processed=True)
+        self.insert('load_staging', id='S2', load_run_id='R1', processed=False)
+        self.insert('load_mapping', id='M1', table_name='LOT', load_date='2026-10-02 08:00:00')
+        rows = self.dashboard('operacional_25_cargas_execucoes.sql', data_inicio='2026-10-02', data_fim='2026-10-02')
+        por_status = {row[3]: row for row in rows}
+        self.assertEqual(por_status['PARCIAL'][4:11], (1, 1, 60.0, 10, 5, 3, 2))
+        self.assertAlmostEqual(float(por_status['PARCIAL'][11]), 0.2)
+        self.assertIsNone(por_status['EXECUTANDO'][11])
+        self.assertIsNone(por_status['EXECUTANDO'][6])
+        erros = self.dashboard('operacional_26_cargas_erros.sql')
+        self.assertEqual({(row[4], row[5], row[6]) for row in erros}, {(False, 1, 2), (True, 1, 1)})
+        staging = self.dashboard('operacional_27_cargas_staging.sql')
+        self.assertEqual({(row[3], row[4]) for row in staging}, {(False, 1), (True, 1)})
+        self.assertEqual(self.dashboard('operacional_28_cargas_mapeamentos.sql')[0][1:], ('LOT', 1))
+        self.assertEqual(self.dashboard('operacional_25_cargas_execucoes.sql', data_inicio='2026-10-03'), [])
 
     def test_gold_all_columns_bind_to_real_model(self):
         for name in CONTRACT:

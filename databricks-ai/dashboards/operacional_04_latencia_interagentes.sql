@@ -1,5 +1,13 @@
-WITH g AS (
-  SELECT * FROM workspace.gold_ia.g_observations
+SELECT dataset.* FROM (
+WITH __safe_g_observations AS (
+ SELECT g.* FROM workspace.gold_ia.g_observations g
+ JOIN workspace.gold_ia._publication p ON g.env=p.env AND g.published_batch_id=p.published_batch_id
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+   ON p.env=r.env AND p.published_batch_id=r.run_id
+),
+g AS (
+  SELECT * FROM __safe_g_observations
   WHERE execution_mode='real' AND operation_kind='graph'
     AND operation_name IN ('graph.execute','graph.resume') AND status<>'started'
     AND started_at>=CAST(:inicio AS TIMESTAMP) AND started_at<CAST(:fim AS TIMESTAMP)
@@ -7,7 +15,7 @@ WITH g AS (
 ), children AS (
   SELECT g.observation_id AS graph_id, g.env, a.observation_id AS agent_span,
          a.started_at AS s,a.ended_at AS e,a.status
-  FROM g JOIN workspace.gold_ia.g_observations a
+  FROM g JOIN __safe_g_observations a
     ON a.env=g.env AND a.parent_observation_id=g.observation_id
    AND a.service=g.service AND a.operation_kind='agent' AND a.execution_mode='real'
 ), valid AS (
@@ -50,5 +58,14 @@ SELECT g.operation_name,count(*) AS grafos,
        percentile_approx(CASE WHEN c.validos=c.filhos THEN s.envelope_ms-s.busy_ms END,0.99,10000) AS gaps_p99_ms
 FROM g LEFT JOIN spans s ON g.env=s.env AND g.observation_id=s.graph_id
 LEFT JOIN coverage c ON g.env=c.env AND g.observation_id=c.graph_id
-GROUP BY g.operation_name;
-
+GROUP BY g.operation_name
+) dataset
+CROSS JOIN (
+SELECT CASE WHEN EXISTS (
+ SELECT 1 FROM workspace.gold_ia._publication p
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+ ON p.env=r.env AND p.published_batch_id=r.run_id
+ WHERE p.env='argos'
+) THEN 1 ELSE raise_error('BI de IA sem lote validado; consulte a execucao do Job.') END AS ok
+) disponibilidade WHERE disponibilidade.ok=1;

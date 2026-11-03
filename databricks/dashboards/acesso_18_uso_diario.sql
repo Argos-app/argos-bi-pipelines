@@ -1,6 +1,6 @@
 WITH acessos AS (
   SELECT DISTINCT id, user_id, date, source, session_count
-  FROM main.self_service.daily_access
+  FROM workspace.self_service.daily_access
   WHERE 1=1
   AND (:usuarios IS NULL OR array_contains(:usuarios, sf_user_id))
   AND (:fazendas IS NULL OR array_contains(:fazendas, sf_property_id))

@@ -4,7 +4,7 @@ WITH dados AS (
     sf_property_name,
     floor(try_divide(weight_at_time, :largura_bin_kg)) * :largura_bin_kg AS faixa_inicio_kg
   FROM
-    main.self_service.application_animal
+    workspace.self_service.application_animal
   WHERE
     sf_application_active = true
     AND weight_at_time IS NOT NULL

@@ -1,4 +1,4 @@
-"""Free Edition: snapshots JSONL de Volumes para Bronze Delta."""
+"""Snapshots completos do MongoDB para Bronze Delta."""
 
 import hashlib
 import json
@@ -84,8 +84,92 @@ def latest_run(spark, config):
     )
 
 
+def connection_uri(config, group):
+    uri = config.get('mongo_a2a_uri') if group == 'a2a' else config.get('mongo_uri')
+    if group == 'a2a' and not uri:
+        uri = config.get('mongo_uri')
+    if not isinstance(uri, str) or not uri.startswith(('mongodb://', 'mongodb+srv://')) or 'PREENCHA_' in uri or '<' in uri:
+        raise ValueError('Preencha a URI Mongo na célula de conexão da Bronze.')
+    return uri
+
+
 def ingest(spark, config):
-    return ingest_jsonl(spark, config)
+    """Lê todas as collections; confirma o run apenas após todos os snapshots."""
+    from pymongo import MongoClient
+    from pymongo.errors import PyMongoError
+
+    active = sources(config)
+    connection_uri(config, 'main')
+    if config.get('mongo_a2a_uri'):
+        connection_uri(config, 'a2a')
+    signature = config_signature(config)
+    ensure_schemas(spark, config)
+    run_id, started = str(uuid4()), utcnow()
+    for name, ddl_text in (('_runs', RUN_DDL), ('_ingestion_state', STATE_DDL)):
+        target = table(config, 'bronze', name)
+        assert_delta(spark, target)
+        spark.sql('CREATE TABLE IF NOT EXISTS ' + target + ' (' + ddl_text + ') USING DELTA')
+
+    clients = {}
+    checked = set()
+    try:
+        for source in active:
+            alias, group = source['alias'], source['group']
+            client_group = 'a2a' if group == 'a2a' and config.get('mongo_a2a_uri') else 'main'
+            if client_group not in clients:
+                clients[client_group] = MongoClient(connection_uri(config, client_group),
+                    tz_aware=True, serverSelectionTimeoutMS=15000, connectTimeoutMS=15000,
+                    socketTimeoutMS=60000, appname='argos-databricks-bi', retryReads=True)
+            database = clients[client_group][source['database']]
+            key = (client_group, source['database'], source['collection'])
+            if key not in checked:
+                # Mongo retorna cursor vazio para collection inexistente; não publicar isso como exclusão.
+                if source['collection'] not in database.list_collection_names(filter={'name': source['collection']}):
+                    raise ValueError('Collection Mongo ausente: ' + alias + '; run não confirmado.')
+                checked.add(key)
+            target = table(config, 'bronze', 'b_' + alias)
+            ensure_bronze_table(spark, target)
+            rows, byte_count, documents, high = [], 0, 0, None
+            cursor = database[source['collection']].find({}).sort('_id', 1).batch_size(config['page_size']).max_time_ms(60000)
+            try:
+                for doc in cursor:
+                    if alias in WORKFLOW_TYPES:
+                        if doc.get('record_type') not in WORKFLOW_TYPES.values():
+                            raise ValueError('record_type desconhecido em email_workflows; run não confirmado.')
+                        if doc['record_type'] != WORKFLOW_TYPES[alias]:
+                            continue
+                    documents += 1
+                    if documents > config['max_documents_per_source']:
+                        raise RuntimeError('Limite max_documents_per_source excedido para ' + alias + '; run não confirmado.')
+                    row = bronze_record(doc, source, config, run_id, started)
+                    size = len(row['raw_json'].encode('utf-8'))
+                    if size > config['max_page_bytes']:
+                        raise ValueError('Documento excede max_page_bytes em ' + alias)
+                    if rows and (len(rows) >= config['page_size'] or byte_count + size > config['max_page_bytes']):
+                        merge_page(spark, target, rows)
+                        rows, byte_count = [], 0
+                    rows.append(row)
+                    byte_count += size
+                    updated = row['source_updated_at']
+                    if updated is not None:
+                        high = max(high, updated) if high is not None else updated
+            finally:
+                cursor.close()
+            merge_page(spark, target, rows)
+            state = dict(env=config['environment'], source_alias=alias, run_id=run_id, run_started_at=started,
+                completed_at=utcnow(), is_snapshot=True, watermark=high, documents=documents, source_signature=signature)
+            append_frame(spark, spark.createDataFrame([state], STATE_DDL), table(config, 'bronze', '_ingestion_state'))
+            print('Bronze Mongo ' + alias + ': ' + str(documents) + ' documentos; snapshot=True')
+        run = dict(env=config['environment'], run_id=run_id, run_started_at=started, completed_at=utcnow(),
+            source_signature=signature, source_aliases=[s['alias'] for s in active], extractor_version=VERSION)
+        append_frame(spark, spark.createDataFrame([run], RUN_DDL), table(config, 'bronze', '_runs'))
+        print('Bronze Mongo concluída. run_id=' + run_id)
+        return run_id
+    except PyMongoError as exc:
+        raise RuntimeError('Falha na leitura Mongo (' + type(exc).__name__ + '); run não confirmado.') from None
+    finally:
+        for client in clients.values():
+            client.close()
 
 
 def ensure_bronze_table(spark, target):

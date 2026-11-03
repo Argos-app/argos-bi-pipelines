@@ -9,7 +9,7 @@ SELECT
   route,
   dose
 FROM
-  main.self_service.application
+  workspace.self_service.application
 WHERE
   active = true
   AND (

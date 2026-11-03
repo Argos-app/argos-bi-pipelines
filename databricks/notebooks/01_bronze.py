@@ -1,37 +1,66 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC Bronze: SELECT * via JDBC; versões e snapshots em Delta append.
 
+
 # COMMAND ----------
-import sys
+
+dbutils.library.restartPython()
+
+
+# COMMAND ----------
+
 import importlib
+import sys
+import tempfile
 from pathlib import Path
 
-for candidate in (Path.cwd(), *Path.cwd().parents):
-    if (candidate / "argos").is_dir():
-        sys.path.insert(0, str(candidate))
-        break
-else:
-    raise RuntimeError(
-        "Pasta argos não encontrada. Preserve argos/ e notebooks/ na raiz do projeto."
-    )
+from databricks.sdk import WorkspaceClient
+
+# Caminho da pasta no Workspace, usado pela API do Databricks.
+workspace_argos = "/Users/PREENCHA_USUARIO/argos-bi/argos"
+
+# Cópia temporária no disco local da sessão.
+local_root = Path(tempfile.mkdtemp(prefix="argos_"))
+local_argos = local_root / "argos"
+local_argos.mkdir()
+
+client = WorkspaceClient()
+
+for nome in ("__init__.py", "common.py", "bronze.py"):
+    origem = f"{workspace_argos}/{nome}"
+
+    with client.workspace.download(origem) as arquivo:
+        conteudo = arquivo.read()
+
+    (local_argos / nome).write_bytes(conteudo)
+
+# Evita reutilizar uma versão anterior do pacote já carregada.
+for nome in list(sys.modules):
+    if nome == "argos" or nome.startswith("argos."):
+        del sys.modules[nome]
+
+sys.path.insert(0, str(local_root))
+importlib.invalidate_caches()
+
 import argos.common as common_module
 import argos.bronze as bronze_module
 
-importlib.reload(common_module)
-importlib.reload(bronze_module)
 ingest = bronze_module.ingest
+
 
 # COMMAND ----------
 
-
-jdbc_user = "avnadmin"
-jdbc_password = "PREENCHA_A_SENHA_DO_BANCO"
+jdbc_user = "PREENCHA_USUARIO_JDBC"
+jdbc_password = "PREENCHA_SENHA_JDBC"
 
 defaults = {
     "jdbc_url": (
-        "jdbc:postgresql://banco-de-dados-institutojef-6ce7.c.aivencloud.com:24330/"
-        "defaultdb?sslmode=require"
+        "PREENCHA_URL_JDBC"
     ),
     "catalog": "main",
     "bronze_schema": "bronze",

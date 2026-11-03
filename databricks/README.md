@@ -19,7 +19,7 @@ A Bronze mantém append JDBC; a Silver e a Gold atualizam snapshots com `format(
 | `argos/delta_layers.py` | Criação e gravação batch de tabelas Delta |
 | `argos/common.py`, `bronze.py`, `silver.py`, `gold.py` | Funções e transformações compartilhadas |
 | `databricks.yml` | Bundle do mesmo Job com Bronze, Silver, atividades Gold independentes e validação |
-| `dashboards/*.sql` | 19 datasets SQL de gráficos e filtros |
+| `dashboards/*.sql` | 28 datasets SQL de gráficos e filtros |
 
 
 ## Instalação nova pela interface
@@ -83,8 +83,23 @@ Cole cada SQL de `dashboards/` como dataset separado. As agregações ficam ness
 | `medicacao_17_validade_lotes.sql` | Lotes de medicamentos por faixa de validade |
 | `acesso_18_uso_diario.sql` | Usuários e sessões por dia e origem |
 | `propriedade_19_distribuicao_geografica.sql` | Propriedades e área por cidade e estado |
+| `acesso_20_entradas_telas.sql` | Entradas em telas por dia e elemento, com usuários distintos |
+| `acesso_21_interacoes_elementos.sql` | Interações por dia, ação e elemento |
+| `acesso_22_autenticacao.sql` | Tentativas de autenticação por dia, origem, resultado e motivo |
+| `operacional_23_notificacoes_situacao.sql` | Situação atual das entregas por canal e status |
+| `operacional_24_notificacoes_envios.sql` | Entregas com data de envio por dia, canal e status |
+| `operacional_25_cargas_execucoes.sql` | Execuções de carga por início, rotina, origem e status |
+| `operacional_26_cargas_erros.sql` | Erros de carga por início da execução, rotina, tabela e reprocessamento |
+| `operacional_27_cargas_staging.sql` | Registros em staging por início da execução, rotina e estado de processamento |
+| `operacional_28_cargas_mapeamentos.sql` | Mapeamentos existentes por data e tabela |
 
 Configure `usuarios`, `fazendas` e `medicamentos` como String com **Allow multiple selections**, usando os IDs dos datasets de opções. `All` fornece NULL. Os filtros `array_contains` são aplicados antes da agregação. `data_inicio` e `data_fim` são Date; o fim é inclusivo. `largura_bin_dose` e `largura_bin_kg` são Numeric > 0, com padrões sugeridos 1 e 50. Faixas inválidas retornam um dataset vazio.
+
+Os datasets 20–22 removem duplicações por contexto de fazenda depois de aplicar os filtros. Eles contam eventos registrados: não comprovam cobertura de todas as telas, permanência ou localização histórica. Tentativas sem usuário/fazenda são excluídas quando esses filtros são selecionados. Não some usuários distintos entre dias ou elementos.
+
+O dataset 23 é uma fotografia do estado atual e não tem filtro de data: a tabela de entregas não tem data de criação. O dataset 24 usa `sent_at` e exclui registros sem essa data, inclusive pendências e falhas sem envio registrado. `ENVIADO` não comprova entrega ao dispositivo nem leitura. Não some alertas distintos entre grupos.
+
+Os datasets 25–27 agrupam pela data de início da execução; o 28 usa a data do mapeamento. As consultas de carga não aceitam filtros por usuário ou fazenda, pois não há vínculo definido. Os datasets 25–27 incluem todas as rotinas de carga: selecione a rotina da RPA no resultado quando necessário. A proporção de rejeitadas é linhas rejeitadas divididas por linhas lidas na mesma linha agregada; será nula se não houver linhas lidas. Duração média considera apenas início e fim válidos. O dataset 28 mostra mapeamentos atualmente existentes, sem vínculo com uma execução específica; ele não é histórico de todas as alterações. Esses resultados dependem da coleta e do sucesso da carga até a Self Service.
 
 Boxplots nativos usam os datasets de observações, sem quartis pré-agregados. Um animal pode ter várias observações de peso em aplicações diferentes. `animais_aplicados` representa atendimentos, não animais únicos. Não some medicamentos/unidades diferentes; o saldo do SQL 03 é do intervalo selecionado. O número atual de cabeças não permite reconstruir uma série histórica sem snapshots históricos específicos.
 
@@ -113,3 +128,5 @@ Os scripts de `argos-data-engineering/modulos/` são a referência para tabelas,
 O dataset 13 reproduz a agregação de `10_bi_cte.sql` sobre a Gold, incluindo aplicações inativas como a view PostgreSQL, e aplica filtros antes de agregar. O dataset 01 continua limitado a aplicações ativas; seus resultados não são diretamente equivalentes aos da view. As views PostgreSQL não são ingeridas como tabelas pela Bronze.
 
 Os datasets 16, 17 e 19 descrevem o estado atual, não uma série histórica. O dataset 17 conta lotes distintos após os filtros e não representa saldo de estoque. O dataset 18 remove duplicações causadas pelos vínculos atuais de usuário e propriedade; sessões não comprovam localização histórica. No dataset 19, cidade e estado podem ser usados em mapa com geocodificação do dashboard.
+
+Os datasets de opções de usuários, fazendas e medicamentos retornam apenas IDs, conforme o requisito de parâmetros baseados em consulta. Para exibir nomes, use uma visualização separada; os filtros recebem os IDs.

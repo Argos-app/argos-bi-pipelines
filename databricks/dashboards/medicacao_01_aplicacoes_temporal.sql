@@ -9,7 +9,7 @@ SELECT
   sum(head_count_applied) AS animais_aplicados,
   avg(dose) AS dose_media_por_cabeca
 FROM
-  main.self_service.application
+  workspace.self_service.application
 WHERE
   active = true
   AND (

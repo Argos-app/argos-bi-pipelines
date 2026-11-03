@@ -1,8 +1,16 @@
-WITH b AS (
+SELECT dataset.* FROM (
+WITH __safe_g_observations AS (
+ SELECT g.* FROM workspace.gold_ia.g_observations g
+ JOIN workspace.gold_ia._publication p ON g.env=p.env AND g.published_batch_id=p.published_batch_id
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+   ON p.env=r.env AND p.published_batch_id=r.run_id
+),
+b AS (
   SELECT
     *
   FROM
-    workspace.gold_ia.g_observations
+    __safe_g_observations
   WHERE
     execution_mode = 'real'
     AND status <> 'started'
@@ -69,4 +77,14 @@ GROUP BY
   coalesce(model_returned, model_requested),
   operation_kind,
   billing.currency,
-  billing.cost_source;
+  billing.cost_source
+) dataset
+CROSS JOIN (
+SELECT CASE WHEN EXISTS (
+ SELECT 1 FROM workspace.gold_ia._publication p
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+ ON p.env=r.env AND p.published_batch_id=r.run_id
+ WHERE p.env='argos'
+) THEN 1 ELSE raise_error('BI de IA sem lote validado; consulte a execucao do Job.') END AS ok
+) disponibilidade WHERE disponibilidade.ok=1;

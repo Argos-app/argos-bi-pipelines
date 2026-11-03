@@ -166,7 +166,7 @@ class PipelineTests(unittest.TestCase):
             for cell in notebook['cells']:
                 code=''.join(cell['source'])
                 if not code.lstrip().startswith('%'): ast.parse(code)
-            if path.name in ('01_bronze.ipynb','02_silver.ipynb'):
+            if path.name in ('01_bronze.ipynb',):
                 self.assertTrue(''.join(notebook['cells'][0]['source']).startswith('%pip'))
 
     def test_gold_only_selects_and_joins_and_dashboards_only_select(self):
@@ -190,15 +190,17 @@ class PipelineTests(unittest.TestCase):
 
     def test_job_dag_and_notebook_paths(self):
         import yaml
-        bundle=yaml.safe_load((ROOT/'databricks.yml').read_text())
-        job=bundle['resources']['jobs']['argos_ai_medallion']
+        bundle=yaml.safe_load((ROOT/'databricks.yml').read_text(encoding='utf-8'))
+        job=bundle['resources']['jobs']['argos_ai_lakeflow']
         self.assertEqual(job['max_concurrent_runs'],1)
-        keys={x['task_key'] for x in job['tasks']}
-        self.assertEqual(len(keys),7)
-        for task in job['tasks']:
-            self.assertTrue((ROOT/task['notebook_task']['notebook_path']).exists())
-            for dep in task.get('depends_on',[]): self.assertIn(dep['task_key'],keys)
-        validation=next(x for x in job['tasks'] if x['task_key']=='validar')
-        self.assertEqual({x['task_key'] for x in validation['depends_on']},set(GOLD_KEYS))
+        tasks=job['tasks']
+        self.assertEqual([t['task_key'] for t in tasks], ['iniciar','bronze','silver_gold','validar'])
+        for previous, task in zip(tasks, tasks[1:]):
+            self.assertEqual(task['depends_on'], [{'task_key': previous['task_key']}])
+        for task in tasks:
+            if 'notebook_task' in task:
+                self.assertTrue((ROOT/task['notebook_task']['notebook_path']).is_file())
+        for library in bundle['resources']['pipelines']['silver_gold']['libraries']:
+            self.assertTrue((ROOT/library['notebook']['path']).is_file())
 
 if __name__=='__main__': unittest.main(verbosity=2)

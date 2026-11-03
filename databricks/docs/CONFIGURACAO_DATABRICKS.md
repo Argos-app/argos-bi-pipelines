@@ -161,6 +161,10 @@ As tabelas devem ter formato `DELTA`. Bronze/Silver usam nomes como `public__app
 
 ## 10. Dashboards e novas tabelas
 
-Use cada arquivo em `dashboards/` como dataset. Ajuste `main.self_service` para o catálogo/schema configurado no Job. Os parâmetros, gráficos e granularidades estão no [README principal](../README.md).
+Use cada arquivo em `dashboards/` como dataset. As consultas usam `workspace.self_service`; ajuste o prefixo se o Job utilizar outro catálogo/schema. Os parâmetros, gráficos e granularidades estão no [README principal](../README.md).
 
 Para adicionar uma nova Gold, copie `_template.py.txt`, implemente seu SQL e declare `SILVER_TABLES` e `GOLD_DEPENDENCIES`. Adicione uma task ao job após `silver` e os contextos necessários e inclua-a nas dependências de `validar`. Se mantiver as barreiras atuais de lotes, faça a nova task aguardar o lote anterior; a quantidade de tasks pode ser revista conforme o compute e as dependências reais. Nenhum notebook Gold existente precisa ser alterado. Veja o [guia Gold](../notebooks/gold/README.md).
+
+## Marcadores da conexão e do Workspace
+
+No notebook `notebooks/01_bronze.py`, substitua `PREENCHA_URL_JDBC`, `PREENCHA_USUARIO_JDBC` e `PREENCHA_SENHA_JDBC` pelos dados PostgreSQL do ambiente. Substitua `/Users/PREENCHA_USUARIO/argos-bi/argos` pelo caminho da pasta `argos` importada no Workspace. No bundle, confira também `jdbc_url`, que pode prevalecer como parâmetro. Não versione credenciais.

@@ -16,7 +16,7 @@ SELECT
     END
   ) AS dias_medios_resolucao
 FROM
-  main.self_service.occurrence
+  workspace.self_service.occurrence
 WHERE
   true
   AND (

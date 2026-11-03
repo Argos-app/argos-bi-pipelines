@@ -3,7 +3,7 @@ SELECT date_trunc('MONTH', occurrence_date) AS mes, type AS tipo,
        count_if(resolved = false) AS abertas,
        avg(CASE WHEN resolved = true AND resolved_at >= occurrence_date
                 THEN datediff(resolved_at, occurrence_date) END) AS media_dias_resolucao
-FROM main.self_service.occurrence
+FROM workspace.self_service.occurrence
 WHERE 1=1
   AND (:usuarios IS NULL OR array_contains(:usuarios, sf_user_id))
   AND (:fazendas IS NULL OR array_contains(:fazendas, sf_property_id))

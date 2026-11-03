@@ -1,22 +1,37 @@
-WITH roots AS (
-  SELECT * FROM workspace.gold_ia.g_interactions
+SELECT dataset.* FROM (
+WITH __safe_g_interactions AS (
+ SELECT g.* FROM workspace.gold_ia.g_interactions g
+ JOIN workspace.gold_ia._publication p ON g.env=p.env AND g.published_batch_id=p.published_batch_id
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+   ON p.env=r.env AND p.published_batch_id=r.run_id
+),
+__safe_g_observations AS (
+ SELECT g.* FROM workspace.gold_ia.g_observations g
+ JOIN workspace.gold_ia._publication p ON g.env=p.env AND g.published_batch_id=p.published_batch_id
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+   ON p.env=r.env AND p.published_batch_id=r.run_id
+),
+roots AS (
+  SELECT * FROM __safe_g_interactions
   WHERE interaction_kind='message'
     AND interaction_id=root_interaction_id AND link_status='valid'
     AND created_at>=CAST(:inicio AS TIMESTAMP) AND created_at<CAST(:fim AS TIMESTAMP)
     AND (nullif(trim(:fazenda),'') IS NULL OR coalesce(array_contains(farm_ids,:fazenda),false))
 ), members AS (
   SELECT m.*,r.created_at AS root_created
-  FROM roots r JOIN workspace.gold_ia.g_interactions m
+  FROM roots r JOIN __safe_g_interactions m
     ON r.env=m.env AND r.interaction_id=m.root_interaction_id
 ), children AS (
   SELECT env,source_interaction_id,count(*) AS n
-  FROM workspace.gold_ia.g_interactions WHERE source_interaction_id IS NOT NULL
+  FROM __safe_g_interactions WHERE source_interaction_id IS NOT NULL
   GROUP BY env,source_interaction_id
 ), obs AS (
   SELECT env,interaction_id,count(*) AS n,
      count_if(status<>'started' AND billing.currency='USD' AND billing.reported_cost IS NOT NULL) AS priced,
      sum(CASE WHEN status<>'started' AND billing.currency='USD' THEN billing.reported_cost END) AS usd
-  FROM workspace.gold_ia.g_observations
+  FROM __safe_g_observations
   WHERE execution_mode='real' AND replayed_result IS NOT TRUE
     AND ((operation_kind='model' AND operation_name='model.invoke' AND observation_level='sdk_invocation')
       OR (operation_kind='model' AND operation_name='model.a2a.answer.generate' AND observation_level='transport_attempt')
@@ -50,5 +65,14 @@ SELECT count(*) AS ciclos_validamente_vinculados,
        sum(chamadas) AS chamadas,sum(precificadas) AS precificadas,
        percentile_approx(CASE WHEN invalidos=0 AND folhas=1 AND folhas_resposta=1 THEN elapsed_ms END,0.95,10000)
          AS p95_ciclo_incluindo_espera_humana_ms
-FROM cycle;
-
+FROM cycle
+) dataset
+CROSS JOIN (
+SELECT CASE WHEN EXISTS (
+ SELECT 1 FROM workspace.gold_ia._publication p
+ JOIN (SELECT env,run_id FROM workspace.bronze_ia._runs
+       QUALIFY row_number() OVER (PARTITION BY env ORDER BY run_started_at DESC,run_id DESC)=1) r
+ ON p.env=r.env AND p.published_batch_id=r.run_id
+ WHERE p.env='argos'
+) THEN 1 ELSE raise_error('BI de IA sem lote validado; consulte a execucao do Job.') END AS ok
+) disponibilidade WHERE disponibilidade.ok=1;

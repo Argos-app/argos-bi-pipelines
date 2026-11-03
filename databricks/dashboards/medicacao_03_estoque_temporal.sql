@@ -24,7 +24,7 @@ SELECT
     END
   ) AS saldo_periodo
 FROM
-  main.self_service.stock_movement
+  workspace.self_service.stock_movement
 WHERE
   true
   AND (

@@ -134,7 +134,7 @@ class ServerlessTests(unittest.TestCase):
                  patch.object(bronze, 'merge_page', side_effect=lambda s,t,rows: pages.append((t, copy.deepcopy(rows)))), \
                  patch.object(bronze, 'append_frame', side_effect=lambda s,rows,t: appends.append((t, rows))), \
                  patch('pymongo.MongoClient') as mongo:
-                bronze.ingest(spark, config)
+                bronze.ingest_jsonl(spark, config)
                 mongo.assert_not_called()
             states = [rows[0] for target, rows in appends if '_ingestion_state' in target]
             self.assertEqual(len(states), 15)
@@ -187,15 +187,15 @@ class ServerlessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_jsonl_path(value)
         self.assertEqual(validate_jsonl_path('/Volumes/c/s/v/batch'), '/Volumes/c/s/v/batch')
-        self.assertNotEqual(config_signature(self.config), config_signature(dict(self.config, jsonl_path='/Volumes/c/s/v/other')))
+        self.assertNotEqual(config_signature(self.config), config_signature(dict(self.config, mongo_source_id='other')))
 
     def test_serverless_job_and_no_unsupported_spark_calls(self):
         import yaml
-        job = yaml.safe_load((ROOT/'databricks.yml').read_text())['resources']['jobs']['argos_ai_medallion']
-        settings = json.loads((ROOT/'docs/job-settings.json').read_text())
-        for tasks in (job['tasks'], settings['tasks']):
-            for task in tasks:
-                self.assertFalse({'existing_cluster_id','new_cluster','job_cluster_key'} & task.keys())
+        bundle = yaml.safe_load((ROOT/'databricks.yml').read_text(encoding='utf-8'))
+        job = bundle['resources']['jobs']['argos_ai_lakeflow']
+        self.assertTrue(bundle['resources']['pipelines']['silver_gold']['serverless'])
+        for task in job['tasks']:
+            self.assertFalse({'existing_cluster_id','new_cluster','job_cluster_key'} & task.keys())
         blocked = {'persist','unpersist','cache','localCheckpoint','checkpoint','rdd','sparkContext','_jvm'}
         for path in (ROOT/'argos').glob('*.py'):
             tree = ast.parse(path.read_text(encoding='utf-8'))
@@ -203,10 +203,9 @@ class ServerlessTests(unittest.TestCase):
                 if isinstance(node, ast.Attribute):
                     self.assertNotIn(node.attr, blocked, path.name)
         self.assertEqual(DEFAULTS['catalog'], 'workspace')
-        self.assertFalse({'source_mode','mongo_database','mongo_secret_scope','force_snapshot','lookback_minutes'} & DEFAULTS.keys())
-        self.assertFalse(hasattr(bronze, 'connection_uri'))
+        self.assertFalse({'source_mode','mongo_database','force_snapshot','lookback_minutes'} & DEFAULTS.keys())
+        self.assertTrue(hasattr(bronze, 'connection_uri'))
         self.assertFalse(hasattr(bronze, 'page_query'))
-        self.assertNotIn('Path.cwd()', (ROOT/'notebooks/02_silver.py').read_text())
 
 if __name__ == '__main__':
     unittest.main()

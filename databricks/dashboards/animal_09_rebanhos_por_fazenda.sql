@@ -5,7 +5,7 @@ SELECT
   count(*) AS rebanhos,
   sum(head_count) AS cabecas
 FROM
-  main.self_service.herd
+  workspace.self_service.herd
 WHERE
   active = true
   AND (

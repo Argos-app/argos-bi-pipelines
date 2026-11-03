@@ -9,7 +9,7 @@ SELECT
   sf_medicine_name,
   weight_at_time AS peso_kg
 FROM
-  main.self_service.application_animal
+  workspace.self_service.application_animal
 WHERE
   sf_application_active = true
   AND weight_at_time IS NOT NULL
